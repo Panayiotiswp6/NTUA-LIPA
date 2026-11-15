@@ -1,4 +1,7 @@
 import type { Intent, SourceSample, Suggestion, SuggestionContext, SuggestionProvider } from './types';
+import { resolveAvailability } from './schedule';
+import { DEFAULT_REFERENCE_DATE } from './scheduleData';
+import { availabilityCandidates, availabilityReply } from './availabilityReply';
 
 const fold = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('el').trim();
 
@@ -89,15 +92,31 @@ export class MockSuggestionProvider implements SuggestionProvider {
     if (!incoming(context)?.text.trim()) return null;
     const intent = intentFor(context);
     const samples = relevantSources(context, intent);
+    if (context.calendarEvents) {
+      const availability = resolveAvailability(incoming(context)!.text, context.referenceDate || DEFAULT_REFERENCE_DATE, context.calendarEvents, context.meetingDurationMinutes || 60);
+      if (availability.status !== 'not_scheduling') {
+        return { ...evidence(context, intent, samples, availabilityReply(context, availability)), availability };
+      }
+    }
     return evidence(context, intent, samples, replyText(context, intent, samples));
   }
 
   async autocomplete(context: SuggestionContext): Promise<Suggestion | null> {
     if (!context.draft.trim() || !incoming(context)?.text.trim()) return null;
     const intent = intentFor(context);
+    const samples = relevantSources(context, intent);
+    if (context.calendarEvents) {
+      const availability = resolveAvailability(incoming(context)!.text, context.referenceDate || DEFAULT_REFERENCE_DATE, context.calendarEvents, context.meetingDurationMinutes || 60);
+      if (availability.status !== 'not_scheduling') {
+        for (const candidate of availabilityCandidates(context, availability)) {
+          const suffix = prefixSuffix(candidate, context.draft);
+          if (suffix?.trim()) return { ...evidence(context, intent, samples, suffix), availability };
+        }
+        return null;
+      }
+    }
     // Unknown topics have no sufficiently grounded continuation.
     if (intent === 'unknown') return null;
-    const samples = relevantSources(context, intent);
     const fullReply = replyText(context, intent, samples);
     const relationship = context.contact.relationship;
     const yesReply = relationship === 'professor'

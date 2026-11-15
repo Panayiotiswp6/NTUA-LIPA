@@ -53,12 +53,12 @@ describe('Digital Self native simulated desktop', () => {
     expect(document.querySelector('.chat-history')).toHaveTextContent('Θες να πάμε σινεμά μετά τη σχολή;');
     expect(document.querySelector('.conversation-row.active .unread-dot')).toBeInTheDocument();
     const proposed = await visibleGhost();
-    expect(proposed).toContain('σινεμά');
+    expect(proposed).toContain('ημέρα');
     expect(composerValue()).toBe('');
     await user.click(screen.getByRole('button', { name: 'Why this suggestion?' }));
     const sources = within(screen.getByRole('dialog', { name: 'Sources' }));
     expect(sources.getByText(/Based on: src-ig-maria-01/)).toBeInTheDocument();
-    expect(sources.getByText('OWNER WRITING SAMPLE')).toBeInTheDocument();
+    expect(sources.getAllByText('OWNER WRITING SAMPLE').length).toBeGreaterThan(0);
     await user.click(sources.getByRole('button', { name: 'Close panel' }));
     await user.click(screen.getByRole('button', { name: 'Accept completion' }));
     expect(composerValue()).toBe(proposed);
@@ -146,7 +146,7 @@ describe('Digital Self native simulated desktop', () => {
   it('keeps drafts and sources attached to the contact and app while native Gmail opens its inbox', async () => {
     const { user } = setup();
     await user.type(reply(), 'πρόχειρο φίλης');
-    await user.click(screen.getByRole('button', { name: /Νίκος Παπαδάκης.*Το δεύτερο/ }));
+    await user.click(screen.getByRole('button', { name: /Νίκος Παπαδάκης.*Να βρεθούμε/ }));
     expect(composerValue()).toBe('');
     expect(document.querySelector('.chat-history')).toHaveTextContent('Το δεύτερο ερώτημα, με την πολυπλοκότητα.');
     await user.type(reply(), 'πρόχειρο συμφοιτητή');

@@ -1,3 +1,5 @@
+import type { AvailabilityResult, ScheduleEvent } from './scheduleTypes';
+
 export type Channel = 'instagram' | 'gmail';
 export type Relationship = 'friend' | 'classmate' | 'professor';
 export type Intent = 'invitation' | 'meeting' | 'assignment' | 'confirmation' | 'unknown';
@@ -63,6 +65,9 @@ export interface SuggestionContext {
   lastIncoming?: Message;
   draft: string;
   sources: SourceSample[];
+  calendarEvents?: ScheduleEvent[];
+  referenceDate?: string;
+  meetingDurationMinutes?: number;
 }
 
 export interface Suggestion {
@@ -71,6 +76,7 @@ export interface Suggestion {
   sourceIds: string[];
   traits: string[];
   intent: Intent;
+  availability?: AvailabilityResult;
 }
 
 export interface SuggestionProvider {

@@ -24,7 +24,8 @@ export function useGhostSuggestion({ context, enabled = true }: GhostOptions) {
     context.channel, context.contact.id, context.draft,
     context.lastIncoming?.id, context.lastIncoming?.text,
     context.history.map(message => [message.id, message.author, message.text]),
-    context.sources.map(source => source.id), revision,
+    context.sources.map(source => source.id), context.calendarEvents,
+    context.referenceDate, context.meetingDurationMinutes, revision,
   ]);
 
   // Escape only dismisses the current editing state, not a phrase forever.
