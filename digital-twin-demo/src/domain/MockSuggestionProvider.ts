@@ -77,7 +77,7 @@ function prefixSuffix(candidate: string, draft: string): string | null {
     if (fold(prefix) === target && !/\s$/.test(prefix)) {
       const tail = candidate.slice(boundary);
       const leadingWhitespace = draft.match(/\s+$/)?.[0] ?? '';
-      return leadingWhitespace ? tail.replace(/^\s+/, '') : tail;
+      return leadingWhitespace ? tail.replace(/^,?\s+/, '') : tail;
     }
   }
   return null;
@@ -105,7 +105,37 @@ export class MockSuggestionProvider implements SuggestionProvider {
       : relationship === 'friend'
         ? intent === 'assignment' ? 'Ναι, για την εργασία λες; πες μου ποιο σημείο εννοείς 🙂' : 'Ναι, το είδα! πες μου λίγες λεπτομέρειες 🙂'
         : intent === 'assignment' ? 'Ναι, για την εργασία, ποιο σημείο εννοείς;' : 'Ναι, το είδα, ευχαριστώ! Πες μου λίγες λεπτομέρειες.';
-    for (const candidate of [fullReply, yesReply]) {
+    const informalDetail = intent === 'assignment'
+      ? 'για την εργασία, ποιο σημείο εννοείς;'
+      : intent === 'meeting' ? 'για τη συνάντηση, πες μου λίγες λεπτομέρειες.'
+      : intent === 'invitation' && subjectFor(context) ? `για ${subjectFor(context)}, πες μου λίγες λεπτομέρειες.`
+      : 'πες μου λίγες λεπτομέρειες.';
+    const formalDetail = intent === 'assignment'
+      ? 'Θα μπορούσατε να διευκρινίσετε σε ποιο σημείο της εργασίας αναφέρεστε;'
+      : intent === 'meeting' ? 'Θα μπορούσατε να μου δώσετε περισσότερες λεπτομέρειες για τη συνάντηση;'
+      : 'Θα μπορούσατε να μου στείλετε περισσότερες λεπτομέρειες;';
+    const professor = relationship === 'professor';
+    const candidates = [
+      fullReply, yesReply, ...samples.map(sample => sample.ownerText),
+      ...(professor ? [
+        `Καλησπέρα σας, σας ευχαριστώ για το μήνυμά σας. ${formalDetail}`,
+        `Καλημέρα σας, σας ευχαριστώ για το μήνυμά σας. ${formalDetail}`,
+        `Ευχαριστώ για το μήνυμά σας. ${formalDetail}`,
+        `Σας ευχαριστώ. ${formalDetail}`,
+        formalDetail,
+        `Θα ήθελα λίγες περισσότερες διευκρινίσεις. ${formalDetail}`,
+      ] : [
+        `Τέλεια, ${informalDetail}${relationship === 'friend' ? ' 🙂' : ''}`,
+        `Ωραία, ${informalDetail}${relationship === 'friend' ? ' 🙂' : ''}`,
+        `Οκ, ${informalDetail}`,
+        `Εντάξει, ${informalDetail}`,
+        `Ευχαριστώ! ${informalDetail[0].toLocaleUpperCase('el')}${informalDetail.slice(1)}`,
+        `Καλησπέρα! ${informalDetail}`,
+        `Μπορείς να μου δώσεις λίγες περισσότερες λεπτομέρειες;`,
+        `Πες μου λίγες λεπτομέρειες${relationship === 'friend' ? ' 🙂' : '.'}`,
+      ]),
+    ];
+    for (const candidate of candidates) {
       const suffix = prefixSuffix(candidate, context.draft);
       if (suffix?.trim()) return evidence(context, intent, samples, suffix);
     }

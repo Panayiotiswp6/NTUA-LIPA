@@ -9,6 +9,8 @@ export interface Persona {
   username: string;
   email: string;
   avatar: string;
+  avatarPosition?: string;
+  avatarSize?: string;
   description: string;
 }
 
@@ -20,6 +22,8 @@ export interface Contact {
   username: string;
   email: string;
   avatar: string;
+  avatarPosition?: string;
+  avatarSize?: string;
   relationship: Relationship;
   relationshipLabel: string;
   style: string[];

@@ -19,7 +19,8 @@ describe('synthetic repository', () => {
       expect(new Set(contacts.map(contact => contact.relationship)).size).toBe(3);
       for (const contact of contacts) {
         expect(contact.email).toMatch(/@example\.com$/);
-        expect(contact.avatar).toMatch(/^avatars\/.+\.svg$/);
+        expect(contact.avatar).toMatch(/^avatars\/.+\.(svg|png)$/);
+        expect(contact.avatarPosition).toMatch(/^\d+% \d+%$/);
         expect(repository.getSources(contact.id).length).toBeGreaterThan(0);
         expect(repository.getThreads(channel).some(thread => thread.contactId === contact.id)).toBe(true);
       }
@@ -111,5 +112,17 @@ describe('rule-based suggestion provider', () => {
     const input = context('ig-maria', '');
     expect(await provider.suggestReply(input)).toBeNull();
     expect(await provider.autocomplete({ ...input, draft: 'Ναι' })).toBeNull();
+  });
+
+  it('continues common partial Greek openings without changing what the writer typed', async () => {
+    for (const draft of ['Τέλ', 'Ωραία', 'Οκ, ', 'Ευχαρ', 'Μπορείς', 'πες μου']) {
+      const result = await provider.autocomplete(context('ig-maria', 'Πάμε για καφέ;', draft));
+      expect(result?.text.trim().length).toBeGreaterThan(0);
+      expect(result!.sourceIds).toContain('src-ig-maria-01');
+      expect((draft + result!.text).slice(0, draft.length)).toBe(draft);
+    }
+    const formal = await provider.autocomplete(context('gm-eleni', 'Να συναντηθούμε;', 'Καλησ'));
+    expect(formal!.text).toContain('σας');
+    expect(formal!.text).not.toContain('🙂');
   });
 });
