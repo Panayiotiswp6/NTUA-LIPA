@@ -1,0 +1,10 @@
+# Local dependencies, generated builds and developer state
+**/node_modules/
+**/dist/
+**/.vite/
+**/coverage/
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+.DS_Store
