@@ -12,6 +12,9 @@ import type { UsageBudget } from '../budget';
 import { askTwin } from './ask';
 import { TwinEngine } from './engine';
 import { STUDIO_INBOX } from './studio';
+import { aiFidelityRun, answerBlind, blindPairs, offlineFidelity } from './fidelity';
+import { getSetting } from './db';
+import { styleProfile as currentStyle } from './persona';
 
 export interface TwinContext {
   db: Database;
@@ -169,6 +172,58 @@ export function twinRouter(context: TwinContext) {
     } catch (error) {
       fail(response, 502, `Η εξαγωγή με AI απέτυχε: ${(error as Error).message.slice(0, 160)}`);
     }
+  });
+
+  router.get('/fidelity', async (_request, response) => { response.json({ ...(await offlineFidelity(db)), aiAvailable: !!context.llm }); });
+
+  router.get('/fidelity/blind', async (_request, response) => { response.json(await blindPairs(db)); });
+
+  router.post('/fidelity/blind', async (request, response) => {
+    const body = (request.body ?? {}) as { id?: unknown; choice?: unknown };
+    if (typeof body.id !== 'string' || (body.choice !== 0 && body.choice !== 1)) return fail(response, 400, 'id and choice (0 or 1) are required.');
+    const result = await answerBlind(db, body.id, body.choice);
+    if (!result) return fail(response, 404, 'Unknown pair.');
+    response.json(result);
+  });
+
+  router.post('/fidelity/run', async (_request, response) => {
+    if (!context.llm || !context.budget) return fail(response, 409, 'Η αξιολόγηση με AI χρειάζεται ενεργό AI (key + AI_ENABLED=true). Τα offline αποτελέσματα είναι ήδη διαθέσιμα.');
+    try { response.json(await aiFidelityRun(db, context.llm, context.budget)); } catch (error) { fail(response, 502, `Η αξιολόγηση με AI απέτυχε: ${(error as Error).message.slice(0, 160)}`); }
+  });
+
+  router.post('/redact-preview', (request, response) => {
+    const value = (request.body as { text?: unknown })?.text;
+    if (typeof value !== 'string' || value.length > 2000) return fail(response, 400, 'text must be up to 2000 characters.');
+    const result = engine.redactForModel(value);
+    response.json({ text: result });
+  });
+
+  router.get('/privacy', (_request, response) => {
+    const one = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+    const redactedTokens = (pattern: string) => one(`SELECT COUNT(*) AS n FROM messages WHERE text_redacted LIKE '%${pattern}%'`);
+    response.json({
+      aiEnabled: !!context.llm,
+      messages: one('SELECT COUNT(*) AS n FROM messages'),
+      otherPeopleMessages: one('SELECT COUNT(*) AS n FROM messages WHERE is_owner = 0'),
+      redactedMessages: one('SELECT COUNT(*) AS n FROM messages WHERE text_redacted != text'),
+      redactions: { names: redactedTokens('Person_'), emails: redactedTokens('[EMAIL]'), phones: redactedTokens('[PHONE]'), identifiers: redactedTokens('[AFM]') + redactedTokens('[AMKA]') + redactedTokens('[IBAN]') + redactedTokens('[CARD]') },
+      pseudonyms: db.prepare('SELECT pseudonym, COUNT(*) AS n FROM participants WHERE is_owner = 0 GROUP BY pseudonym ORDER BY pseudonym LIMIT 20').all(),
+      sources: listSources(db),
+    });
+  });
+
+  router.get('/export', (_request, response) => {
+    const owner = ownerState(db);
+    response.setHeader('Content-Disposition', 'attachment; filename="my-digital-twin-persona.json"');
+    response.json({
+      exportedAt: new Date().toISOString(),
+      owner: owner.participants.map(person => person.name),
+      facts: listFacts(db).map(({ id, category, statement, confidence, status, origin, evidence }) => ({ id, category, statement, confidence, status, origin, evidence })),
+      style: currentStyle(db),
+      sources: listSources(db).map(source => ({ kind: source.kind, filename: source.filename, included: source.included, stats: source.stats })),
+      feedback: db.prepare('SELECT action, COUNT(*) AS n FROM feedback_events GROUP BY action').all(),
+      blindTest: getSetting(db, 'blind_results', []),
+    });
   });
 
   router.get('/studio', (_request, response) => { response.json({ inbox: STUDIO_INBOX, aiAvailable: !!context.llm }); });

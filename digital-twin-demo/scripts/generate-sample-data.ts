@@ -68,24 +68,28 @@ function mariaEpisodes(count: number): Episode[] {
   const episodes: Episode[] = [];
   for (let i = 0; i < count; i++) {
     const day = randomDay();
-    const kind = pick(['lastminute', 'weekend', 'photos', 'checkin', 'coffee-evening', 'plan', 'study']);
+    const kind = pick(['invite', 'invite', 'invite', 'photos', 'checkin', 'coffee-evening', 'plan', 'study']);
     const [activity, emoji] = pick(activities);
-    if (kind === 'lastminute' && !isWeekend(day)) {
-      // Decision pattern: last-minute weekday invitation → decline, propose the weekend.
-      const gym = [1, 2, 4, 5].includes(weekday(day));
-      episodes.push({ start: at(day, 17 + Math.floor(random() * 2), Math.floor(random() * 50)), turns: [
-        [MARIA, `πάμε για ${activity} σήμερα το βράδυ; ${emoji}`],
-        [OWNER, gym ? `σήμερα δεν προλαβαίνω 😅 έχω γυμναστήριο στις 8. το σάββατο όμως είμαι ελεύθερος, πάμε τότε;` : `σήμερα δύσκολα, μου το λες τελευταία στιγμή 😅 πάμε το σαββατοκύριακο;`],
-        [MARIA, pick(['οκ σάββατο τότε!', 'καλά, κυριακή τότε 🙂', 'έγινε!'])],
-        [OWNER, pick(['τέλεια! πες μου ώρα 🙂', 'τέλεια! τα λέμε τότε 🙂'])],
-      ] });
-    } else if (kind === 'weekend' || (kind === 'lastminute' && isWeekend(day))) {
-      episodes.push({ start: at(day, 11, Math.floor(random() * 50)), turns: [
-        [MARIA, `θες ${activity} ${pick(['το απόγευμα', 'αύριο το πρωί', 'το μεσημέρι'])};`],
-        [OWNER, activity === 'καφέ' ? 'ναι! πάμε στον πλάτανο; 🙂' : 'ναι! πες μου ώρα 🙂'],
-        [MARIA, pick(['στις 12;', 'στις 5;', 'στις 1;'])],
-        [OWNER, pick(['τέλεια, εκεί θα είμαι 🙂', 'οκ! τα λέμε 🙂'])],
-      ] });
+    if (kind === 'invite') {
+      // The SAME invitation; only the day decides the answer. Text alone cannot tell them apart.
+      const invitation = pick([`πάμε για ${activity} σήμερα; ${emoji}`, `θες ${activity} σήμερα;`, `πάμε για ${activity} σήμερα το απόγευμα;`, `έλα για ${activity} σήμερα!`]);
+      if (isWeekend(day)) {
+        episodes.push({ start: at(day, 11 + Math.floor(random() * 4), Math.floor(random() * 50)), turns: [
+          [MARIA, invitation],
+          [OWNER, activity === 'καφέ' ? pick(['ναι! πάμε στον πλάτανο; 🙂', 'ναι! πλάτανο στις 12; 🙂']) : pick(['ναι! πες μου ώρα 🙂', 'τέλεια, πάμε! τι ώρα; 🙂', 'ναι!! πες μου πού 🙂'])],
+          [MARIA, pick(['στις 12;', 'στις 5;', 'στις 1;'])],
+          [OWNER, pick(['τέλεια, εκεί θα είμαι 🙂', 'οκ! τα λέμε 🙂'])],
+        ] });
+      } else {
+        // Decision pattern: last-minute weekday invitation → decline, propose the weekend.
+        const gym = [1, 2, 4, 5].includes(weekday(day));
+        episodes.push({ start: at(day, 13 + Math.floor(random() * 4), Math.floor(random() * 50)), turns: [
+          [MARIA, invitation],
+          [OWNER, gym ? pick(['σήμερα δεν προλαβαίνω 😅 έχω γυμναστήριο στις 8. το σάββατο όμως είμαι ελεύθερος, πάμε τότε;', 'σήμερα δεν μπορώ, έχω γυμναστήριο 😅 σάββατο;']) : pick(['σήμερα δύσκολα, μου το λες τελευταία στιγμή 😅 πάμε το σαββατοκύριακο;', 'σήμερα δεν μπορώ 😅 το σαββατοκύριακο όμως είμαι ελεύθερος!'])],
+          [MARIA, pick(['οκ σάββατο τότε!', 'καλά, κυριακή τότε 🙂', 'έγινε!'])],
+          [OWNER, pick(['τέλεια! πες μου ώρα 🙂', 'τέλεια! τα λέμε τότε 🙂'])],
+        ] });
+      }
     } else if (kind === 'coffee-evening') {
       episodes.push({ start: at(day, 18, 30 + Math.floor(random() * 20)), turns: [
         [MARIA, 'έλα για ένα καφεδάκι τώρα; ☕'],
@@ -112,7 +116,7 @@ function mariaEpisodes(count: number): Episode[] {
       ] });
     } else {
       episodes.push({ start: at(day, 16, Math.floor(random() * 50)), turns: [
-        [MARIA, 'να κανονίσουμε κάτι αυτή τη βδομάδα;'],
+        [MARIA, pick(['να κανονίσουμε κάτι αυτή τη βδομάδα;', 'να βρεθούμε αυτή τη βδομάδα;'])],
         [OWNER, 'ναι! πες μου ποια μέρα και ώρα σκέφτεσαι 🙂'],
         [MARIA, `${pick(ACC_DAY.slice(5))} ;`.replace(' ;', ';')],
         [OWNER, 'τέλεια, κλείσ’ το 🙂'],
@@ -128,13 +132,13 @@ function giorgosEpisodes(count: number): Episode[] {
   const episodes: Episode[] = [];
   for (let i = 0; i < count; i++) {
     const day = randomDay();
-    const kind = pick(['match', 'lastminute', 'game', 'gym', 'joke']);
-    if (kind === 'lastminute' && !isWeekend(day)) {
-      episodes.push({ start: at(day, 19, Math.floor(random() * 40)), turns: [
-        [GIORGOS, 'ela re pame gia mpira twra?'],
-        [OWNER, 'twra den mporw re, exw gym. savvato?'],
-        [GIORGOS, 'ok re savvato'],
-      ] });
+    const kind = pick(['match', 'lastminute', 'lastminute', 'game', 'gym', 'joke']);
+    if (kind === 'lastminute') {
+      const invitation = pick(['ela re pame gia mpala twra?', 'pame gia mpasket twra?', 'ela gia mpira simera?']);
+      episodes.push({ start: at(day, isWeekend(day) ? 12 : 19, Math.floor(random() * 40)), turns: isWeekend(day)
+        ? [[GIORGOS, invitation], [OWNER, pick(['nai re, se 10 lepta ekei', 'ela, erxomai!', 'nai re pame'])]]
+        : [[GIORGOS, invitation], [OWNER, pick(['twra den mporw re, exw gym. savvato?', 'simera oxi re, exw diavasma. savvato?'])], [GIORGOS, 'ok re savvato']],
+      });
     } else if (kind === 'match') {
       episodes.push({ start: at(day, 18, Math.floor(random() * 40)), turns: [
         [GIORGOS, 'eides to match xthes??'],
@@ -198,7 +202,7 @@ function studyEpisodes(count: number): Episode[] {
       ] });
     } else if (kind === 'meeting') {
       episodes.push({ start: at(day, 10, Math.floor(random() * 40)), turns: [
-        [NIKOS, 'Να βρεθούμε να το δούμε μαζί;'],
+        [NIKOS, pick(['Να βρεθούμε να το δούμε μαζί;', 'Να βρεθούμε αυτή τη βδομάδα;'])],
         [OWNER, 'Ναι. Ποια μέρα και ώρα σας βολεύει; Εγώ προτιμώ πρωί.'],
         [DIMITRA, `${DAY_NAMES[pick([1, 3, 5])]} 10:00;`],
         [OWNER, 'Οκ, κλείνουμε. Θα κλείσω αίθουσα στη βιβλιοθήκη.'],
@@ -442,8 +446,8 @@ async function main() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
 
-  const maria = play(mariaEpisodes(60));
-  const giorgos = play(giorgosEpisodes(35));
+  const maria = play(mariaEpisodes(70));
+  const giorgos = play(giorgosEpisodes(40));
   const mom = play(momEpisodes(18));
   const study = play(studyEpisodes(30));
   const nikosPrivate = play(studyEpisodes(8).map(episode => ({ ...episode, turns: episode.turns.map(([speaker, text]) => [speaker === DIMITRA ? NIKOS : speaker, text] as Turn) })));

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { ComponentType } from 'react';
-import { BarChart3, Bot, Database, Home, MessagesSquare, UserRound } from 'lucide-react';
+import { BarChart3, Bot, Database, FlaskConical, Home, MessagesSquare, ShieldCheck, UserRound } from 'lucide-react';
 import { useAiStatus } from '../ai/provider';
 import HomePage from './HomePage';
 import ImportPage from './ImportPage';
@@ -13,6 +13,8 @@ interface PageProps { onNavigate: (page: string) => void }
 const PersonaPage = lazy(() => import('./PersonaPage'));
 const StudioPage = lazy(() => import('./StudioPage'));
 const AskPage = lazy(() => import('./AskPage'));
+const FidelityPage = lazy(() => import('./FidelityPage'));
+const PrivacyPage = lazy(() => import('./PrivacyPage'));
 
 const PAGES: Array<{ id: TwinPage; label: string; icon: typeof Home; component: ComponentType<PageProps> }> = [
   { id: 'home', label: 'Επισκόπηση', icon: Home, component: HomePage },
@@ -20,6 +22,8 @@ const PAGES: Array<{ id: TwinPage; label: string; icon: typeof Home; component: 
   { id: 'persona', label: 'Persona', icon: UserRound, component: PersonaPage },
   { id: 'studio', label: 'Reply Studio', icon: MessagesSquare, component: StudioPage },
   { id: 'ask', label: 'Ask my twin', icon: Bot, component: AskPage },
+  { id: 'fidelity', label: 'Fidelity Lab', icon: FlaskConical, component: FidelityPage },
+  { id: 'privacy', label: 'Privacy', icon: ShieldCheck, component: PrivacyPage },
 ];
 
 export default function TwinWorkspace({ initialPage = 'home' }: { initialPage?: TwinPage }) {

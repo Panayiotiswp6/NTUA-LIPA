@@ -40,7 +40,7 @@ export const SITUATIONS: Array<{ id: string; label: string; test: (text: string,
 const INVITE = /(πάμε|θες|θέλεις|έλα|έρχεσαι|θα έρθεις|να βρεθούμε|pame|ela|πάρτι|γενέθλια|για καφ|καφεδάκι|σινεμά|βόλτα|φαγητό|ποτό|mpira|mpasket|game)/i;
 const LAST_MINUTE = /(σήμερα|απόψε|τώρα|twra|simera)/i;
 
-const ACTIONS: Array<{ id: string; label: string; test: (text: string) => boolean }> = [
+export const ACTIONS: Array<{ id: string; label: string; test: (text: string) => boolean }> = [
   { id: 'decline', label: 'αρνείται', test: text => /(δεν (μπορώ|προλαβαίνω|αποδίδω|πίνω)|δύσκολα|den mporw|oxi re|δεν γίνεται)/i.test(text) },
   { id: 'weekend', label: 'προτείνει το Σαββατοκύριακο', test: text => /(σάββατο|κυριακή|σαββατοκύριακο|savvato|savvatokyriako)/i.test(text) },
   { id: 'morning', label: 'προτείνει πρωινή ώρα', test: text => /(πρωί|prwi)/i.test(text) },

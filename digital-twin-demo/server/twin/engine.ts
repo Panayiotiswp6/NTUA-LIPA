@@ -108,8 +108,11 @@ export class TwinEngine {
     return this.corpus;
   }
 
-  /** BM25 on the incoming side, plus situation, register, same-person and owner-feedback boosts. */
-  retrieve(request: TwinRequest, register: Relationship, limit = 5): Exemplar[] {
+  /**
+   * BM25 on the incoming side, plus situation, register, same-person and owner-feedback boosts.
+   * plain=true turns every persona signal off: the "no persona" ablation in the Fidelity Lab.
+   */
+  retrieve(request: TwinRequest, register: Relationship, limit = 5, plain = false): Exemplar[] {
     const corpus = this.load();
     const query = tokens(request.incoming);
     const names = new Set(this.db.prepare('SELECT display_name AS name FROM participants').all().flatMap(row => tokens((row as { name: string }).name)));
@@ -131,18 +134,20 @@ export class TwinEngine {
         score += weight * idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * pair.tokens.length / Math.max(1, corpus.avgLength)));
       }
       const sameSituation = pair.situations.some(situation => situations.has(situation));
-      if (sameSituation) score += 4;
-      if (pair.relationship === register) score += 1.2;
-      if (request.contactName && fold(pair.contact) === fold(request.contactName)) score += 1;
-      if (pair.platform === request.platform) score += 0.3;
-      if (pair.source === 'feedback') score *= 1.5;
+      if (!plain) {
+        if (sameSituation) score += 4;
+        if (pair.relationship === register) score += 1.2;
+        if (request.contactName && fold(pair.contact) === fold(request.contactName)) score += 1;
+        if (pair.platform === request.platform) score += 0.3;
+        if (pair.source === 'feedback') score *= 1.5;
+      }
       const own = new Set(pair.tokens);
       const coverage = meaningful.length ? meaningful.filter(token => own.has(token)).length / meaningful.length : 0;
       return { pair, score, coverage, sameSituation };
-    }).filter(item => item.score > 1.5).sort((a, b) => b.score - a.score);
+    }).filter(item => item.score > (plain ? 0 : 1.5)).sort((a, b) => b.score - a.score);
     // Prefer the register; fall back to other registers only when it has nothing relevant.
     const inRegister = scored.filter(item => item.pair.relationship === register);
-    const chosen = (inRegister.length >= 2 ? inRegister : scored).slice(0, limit);
+    const chosen = (!plain && inRegister.length >= 2 ? inRegister : scored).slice(0, limit);
     return chosen.map(({ pair, score, coverage, sameSituation }) => ({ id: pair.id, incoming: pair.incoming, reply: pair.reply, platform: pair.platform, relationship: pair.relationship, contact: pair.contact, source: pair.source, score: Number(score.toFixed(2)), coverage: Number(coverage.toFixed(2)), sameSituation }));
   }
 
