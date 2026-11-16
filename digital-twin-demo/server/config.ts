@@ -13,7 +13,21 @@ export interface ServerConfig {
   rateLimitPerMinute: number;
   requestTimeoutMs: number;
   staticDir?: string;
+  /** True while AI is paused: the key is ignored and every request is answered by the deterministic engine. */
+  aiPaused: boolean;
 }
+
+/**
+ * Pause switch for the shared, capped API allowance.
+ * While false, the server never calls OpenAI, even with OPENAI_API_KEY set, unless AI_ENABLED=true is given explicitly.
+ * Resuming AI for everyone (and for the judges) means changing this one line to true.
+ */
+export const AI_ENABLED_BY_DEFAULT = false;
+
+const flag = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined || value.trim() === '') return fallback;
+  return /^(1|true|yes|on)$/i.test(value.trim());
+};
 
 const number = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
@@ -23,10 +37,12 @@ const number = (value: string | undefined, fallback: number) => {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const key = env.OPENAI_API_KEY?.trim();
   const effort = env.OPENAI_REASONING_EFFORT;
+  const aiPaused = !flag(env.AI_ENABLED, AI_ENABLED_BY_DEFAULT);
   return {
+    aiPaused,
     port: number(env.PORT, 3000),
     // An empty or placeholder value means "run without AI", which keeps the demo usable offline.
-    openaiApiKey: key && !/^(|changeme|your[-_ ]?key.*|sk-\.\.\.)$/i.test(key) ? key : undefined,
+    openaiApiKey: !aiPaused && key && !/^(|changeme|your[-_ ]?key.*|sk-\.\.\.)$/i.test(key) ? key : undefined,
     openaiBaseUrl: env.OPENAI_BASE_URL?.trim() || undefined,
     chatModel: env.OPENAI_MODEL?.trim() || 'gpt-6-luna',
     embeddingModel: env.OPENAI_EMBEDDING_MODEL?.trim() || 'text-embedding-3-large',

@@ -57,6 +57,8 @@ export interface SuggestionServiceOptions {
   llm?: LlmClient;
   budget: UsageBudget;
   now?: () => number;
+  /** Shown to the user when there is no model, e.g. while AI is paused. */
+  disabledReason?: string;
 }
 
 /**
@@ -127,7 +129,7 @@ export class SuggestionService {
     if (!context) throw new Error('Unknown contact for this channel.');
     if (!context.lastIncoming?.text.trim()) return null;
     if (request.mode === 'complete' && !request.draft.trim()) return null;
-    if (!this.options.llm) return this.deterministic(request, context, { fallbackReason: 'Δεν έχει οριστεί OPENAI_API_KEY· απαντούν οι deterministic κανόνες.' }, started);
+    if (!this.options.llm) return this.deterministic(request, context, { fallbackReason: this.options.disabledReason ?? 'Δεν έχει οριστεί OPENAI_API_KEY· απαντούν οι deterministic κανόνες.' }, started);
 
     const key = createHash('sha256').update(JSON.stringify(request)).digest('hex');
     if (this.cache.has(key)) return this.cache.get(key)!;

@@ -145,6 +145,20 @@ describe('SuggestionService', () => {
   });
 });
 
+describe('AI pause switch', () => {
+  it('never uses the key unless AI_ENABLED is true', () => {
+    expect(loadConfig({ OPENAI_API_KEY: 'sk-test' })).toMatchObject({ aiPaused: true, openaiApiKey: undefined });
+    expect(loadConfig({ OPENAI_API_KEY: 'sk-test', AI_ENABLED: 'false' })).toMatchObject({ aiPaused: true, openaiApiKey: undefined });
+    expect(loadConfig({ OPENAI_API_KEY: 'sk-test', AI_ENABLED: 'true' })).toMatchObject({ aiPaused: false, openaiApiKey: 'sk-test' });
+  });
+
+  it('explains the pause in every suggestion', async () => {
+    const paused = new SuggestionService({ repository, budget: new UsageBudget(1, 1), disabledReason: 'paused' });
+    const result = await paused.suggest(request('ig-maria', 'πάμε για καφέ;'));
+    expect(result?.meta).toMatchObject({ engine: 'deterministic', fallbackReason: 'paused' });
+  });
+});
+
 describe('HTTP API', () => {
   let server: Server | undefined;
   afterEach(() => server?.close());

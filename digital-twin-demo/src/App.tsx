@@ -239,7 +239,7 @@ function App() {
   </div>;
 }
 function AiBadge({ status }: { status: AiStatus }) {
-  const label = status.state === 'online' ? `AI · ${status.model ?? 'online'}` : status.state === 'checking' ? 'AI · σύνδεση…' : 'Offline · κανόνες';
+  const label = status.state === 'online' ? `AI · ${status.model ?? 'online'}` : status.state === 'checking' ? 'AI · σύνδεση…' : status.paused ? 'AI · σε παύση' : 'Offline · κανόνες';
   return <span className={`ai-badge ${status.state}`} role="status" title={status.state === 'online' ? `Προτάσεις από ${status.model}${status.embeddingModel ? ` με semantic retrieval (${status.embeddingModel})` : ''}. Το API key μένει στον server.` : status.reason}><span/>{label}</span>;
 }
 function EngineChip({ suggestion }: { suggestion: Suggestion }) {
