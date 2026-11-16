@@ -1,6 +1,6 @@
-import { Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import type { ComponentType } from 'react';
-import { BarChart3, Database, Home } from 'lucide-react';
+import { BarChart3, Database, Home, UserRound } from 'lucide-react';
 import { useAiStatus } from '../ai/provider';
 import HomePage from './HomePage';
 import ImportPage from './ImportPage';
@@ -10,10 +10,12 @@ import './twin.css';
 export type TwinPage = 'home' | 'import' | 'persona' | 'studio' | 'ask' | 'fidelity' | 'privacy';
 
 interface PageProps { onNavigate: (page: string) => void }
+const PersonaPage = lazy(() => import('./PersonaPage'));
 
 const PAGES: Array<{ id: TwinPage; label: string; icon: typeof Home; component: ComponentType<PageProps> }> = [
   { id: 'home', label: 'Επισκόπηση', icon: Home, component: HomePage },
   { id: 'import', label: 'Import', icon: Database, component: ImportPage },
+  { id: 'persona', label: 'Persona', icon: UserRound, component: PersonaPage },
 ];
 
 export default function TwinWorkspace({ initialPage = 'home' }: { initialPage?: TwinPage }) {

@@ -7,6 +7,7 @@ import { SuggestionService } from './suggestionService';
 import path from 'node:path';
 import { getSetting, openDatabase, setSetting } from './twin/db';
 import { counts, loadDemoPersona, type TwinContext } from './twin/routes';
+import { refreshPersona } from './twin/persona';
 
 const config = loadConfig();
 const budget = new UsageBudget(config.tokenBudget, config.rateLimitPerMinute);
@@ -15,7 +16,7 @@ const disabledReason = config.aiPaused ? 'Το AI είναι σε παύση (AI
 const service = new SuggestionService({ repository: sourceRepository, llm, budget, disabledReason });
 
 const db = openDatabase(path.join(config.dataDir, 'twin.db'));
-const twin: TwinContext = { db, sampleDir: process.env.SAMPLE_DATA_DIR?.trim() || 'sample-data' };
+const twin: TwinContext = { db, sampleDir: process.env.SAMPLE_DATA_DIR?.trim() || 'sample-data', llm, budget, onDataChanged: () => { refreshPersona(db); } };
 
 // First start: build the demo twin from the bundled synthetic exports, through the real import pipeline.
 if (process.env.SEED_DEMO !== 'false' && !counts(db).messages && !getSetting(db, 'seeded_once', false)) {
@@ -23,6 +24,9 @@ if (process.env.SEED_DEMO !== 'false' && !counts(db).messages && !getSetting(db,
   setSetting(db, 'seeded_once', true);
   console.log(`Seeded the demo persona from ${reports.length} sample exports (${counts(db).messages} messages).`);
 }
+
+// Style and rule-based persona are derived data; rebuild them on start so code changes apply to stored data.
+refreshPersona(db);
 
 createApp(config, service, budget, twin).listen(config.port, '0.0.0.0', () => {
   console.log(`Digital Self listening on http://localhost:${config.port}`);
