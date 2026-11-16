@@ -1,3 +1,4 @@
+import compression from 'compression';
 import express from 'express';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -10,12 +11,16 @@ import { twinRouter, type TwinContext } from './twin/routes';
 export function createApp(config: ServerConfig, service: SuggestionService, budget: UsageBudget, twin?: TwinContext) {
   const app = express();
   app.disable('x-powered-by');
+  // Brotli or gzip for every text response: the app shell shrinks about four times on the wire.
+  app.use(compression());
   app.use(express.json({ limit: '256kb' }));
   app.use((_request, response, next) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });
+  // API answers depend on local data and must never be reused from a cache.
+  app.use('/api', (_request, response, next) => { response.setHeader('Cache-Control', 'no-store'); next(); });
 
   app.get('/api/health', (_request, response) => {
     response.json({
@@ -50,9 +55,16 @@ export function createApp(config: ServerConfig, service: SuggestionService, budg
 
   if (config.staticDir && existsSync(config.staticDir)) {
     const root = path.resolve(config.staticDir);
-    app.use(express.static(root, { index: false, maxAge: '1h' }));
-    // Single-page app: every other GET returns the shell.
-    app.get(/.*/, (_request, response) => { response.sendFile(path.join(root, 'index.html')); });
+    const assets = `${path.sep}assets${path.sep}`;
+    app.use(express.static(root, {
+      index: false,
+      setHeaders(response, file) {
+        // The build fingerprints everything under /assets, so a browser can keep those files for good.
+        response.setHeader('Cache-Control', file.includes(assets) ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+      },
+    }));
+    // Single-page app: every other GET returns the shell, always revalidated so a new build is picked up at once.
+    app.get(/.*/, (_request, response) => { response.sendFile(path.join(root, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } }); });
   }
   return app;
 }

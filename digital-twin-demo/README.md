@@ -71,7 +71,7 @@ npm run build -- --base=/NTUA-LIPA/
 - `src/domain/MockSuggestionProvider.ts`: async `suggestReply(context)` και `autocomplete(context)`. Ανιχνεύει πρόσκληση, συνάντηση, εργασία, επιβεβαίωση και άγνωστο θέμα. Επιλέγει sources μόνο της ίδιας επαφής και εφαρμογής. Δεν επινοεί ώρες ή υποσχέσεις. Για άγνωστο θέμα απαντά ουδέτερα και δεν κάνει autocomplete.
 - `src/App.tsx`: εφαρμογές, νήματα, Control Center, Sources και ανεξάρτητα drafts.
 - `src/useGhostSuggestion.ts`: debounced async προτάσεις, ακύρωση παλιών αποτελεσμάτων και αχνό κείμενο χωρίς μεταβολή του draft.
-- `public/avatars/portraits.png`: φωτορεαλιστικά πορτρέτα τεσσάρων πλασματικών ενηλίκων, δημιουργημένα με AI, σε τοπικό sprite. Το UI εμφανίζει την κατάλληλη περιοχή για κάθε επαφή, χωρίς εξωτερικά requests. Τα SVG διατηρούνται ως αρχικά συνθετικά assets.
+- `public/avatars/portraits.webp`: φωτορεαλιστικά πορτρέτα τεσσάρων πλασματικών ενηλίκων, δημιουργημένα με AI, σε τοπικό sprite. Το UI εμφανίζει την κατάλληλη περιοχή για κάθε επαφή, χωρίς εξωτερικά requests. Τα SVG διατηρούνται ως αρχικά συνθετικά assets.
 
 ### AI server
 
