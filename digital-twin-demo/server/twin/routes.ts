@@ -9,6 +9,9 @@ import { deleteEverything, deleteSource, importUpload, listSources, ownerState, 
 import { addOwnerFact, evidenceFor, extractFactsWithLlm, FACT_CATEGORIES, listFacts, styleProfile, updateFact, type FactCategory, type FactStatus } from './persona';
 import type { LlmClient } from '../llm';
 import type { UsageBudget } from '../budget';
+import { askTwin } from './ask';
+import { TwinEngine } from './engine';
+import { STUDIO_INBOX } from './studio';
 
 export interface TwinContext {
   db: Database;
@@ -50,9 +53,16 @@ export function counts(db: Database) {
 const RELATIONSHIPS = new Set(['friend', 'family', 'study', 'work', 'unknown']);
 const fail = (response: Response, status: number, error: string) => response.status(status).json({ error });
 
+const PLATFORMS = new Set(['whatsapp', 'telegram', 'gmail', 'instagram', 'messenger']);
+const text = (value: unknown, max: number) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
+
 export function twinRouter(context: TwinContext) {
   const router = express.Router();
   const { db } = context;
+  const engine = new TwinEngine(db, context.llm, context.budget);
+  // Every data change also refreshes the twin's situational memory.
+  const changed = context.onDataChanged;
+  context.onDataChanged = () => { changed?.(); engine.invalidate(); };
 
   router.get('/overview', (_request, response) => {
     response.json({ owner: ownerState(db), sources: listSources(db), counts: counts(db) });
@@ -159,6 +169,50 @@ export function twinRouter(context: TwinContext) {
     } catch (error) {
       fail(response, 502, `Η εξαγωγή με AI απέτυχε: ${(error as Error).message.slice(0, 160)}`);
     }
+  });
+
+  router.get('/studio', (_request, response) => { response.json({ inbox: STUDIO_INBOX, aiAvailable: !!context.llm }); });
+
+  router.post('/reply', async (request, response) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    if (!text(body.incoming, 2000)) return fail(response, 400, 'incoming must be 1–2000 characters.');
+    if (!PLATFORMS.has(String(body.platform))) return fail(response, 400, 'Unknown platform.');
+    if (body.relationship !== undefined && !RELATIONSHIPS.has(String(body.relationship))) return fail(response, 400, 'Unknown relationship.');
+    if (body.sentAt !== undefined && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(String(body.sentAt))) return fail(response, 400, 'sentAt must be YYYY-MM-DDTHH:MM.');
+    const history = Array.isArray(body.history) ? (body.history as Array<{ author?: unknown; text?: unknown }>).slice(-10).filter(item => (item.author === 'owner' || item.author === 'contact') && text(item.text, 2000)) as Array<{ author: 'owner' | 'contact'; text: string }> : [];
+    response.json(await engine.reply({
+      incoming: String(body.incoming), platform: String(body.platform), relationship: body.relationship as never,
+      contactName: text(body.contactName, 120) ? String(body.contactName) : undefined, history, sentAt: body.sentAt as string | undefined,
+    }));
+  });
+
+  router.post('/generic', async (request, response) => {
+    const incoming = (request.body as { incoming?: unknown })?.incoming;
+    if (!text(incoming, 2000)) return fail(response, 400, 'incoming must be 1–2000 characters.');
+    if (!context.llm) return fail(response, 409, 'Η σύγκριση με γενικό AI χρειάζεται ενεργό AI (key + AI_ENABLED=true).');
+    try {
+      const reply = await engine.generic(String(incoming));
+      if (reply === null) return fail(response, 429, 'Όριο χρήσης AI· δοκίμασε ξανά σε λίγο.');
+      response.json({ text: reply });
+    } catch (error) { fail(response, 502, `Το γενικό μοντέλο δεν απάντησε: ${(error as Error).message.slice(0, 120)}`); }
+  });
+
+  router.post('/ask', async (request, response) => {
+    const question = (request.body as { question?: unknown })?.question;
+    if (!text(question, 500)) return fail(response, 400, 'question must be 1–500 characters.');
+    response.json(await askTwin(db, engine, String(question).trim(), context.llm, context.budget));
+  });
+
+  router.post('/feedback', (request, response) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    if (!['accepted', 'edited', 'dismissed'].includes(String(body.action))) return fail(response, 400, 'action must be accepted, edited or dismissed.');
+    if (!text(body.incoming, 2000) || typeof body.suggestion !== 'string' || body.suggestion.length > 4000 || typeof body.finalText !== 'string' || body.finalText.length > 4000) return fail(response, 400, 'incoming, suggestion and finalText are required.');
+    if (!PLATFORMS.has(String(body.platform))) return fail(response, 400, 'Unknown platform.');
+    const relationship = RELATIONSHIPS.has(String(body.relationship)) ? String(body.relationship) : null;
+    db.prepare('INSERT INTO feedback_events (created_at, platform, relationship, incoming, suggestion, final_text, action, engine) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(new Date().toISOString(), String(body.platform), relationship, String(body.incoming), body.suggestion, body.finalText, String(body.action), typeof body.engine === 'string' ? body.engine.slice(0, 40) : null);
+    engine.invalidate();
+    response.json({ ok: true, events: (db.prepare('SELECT COUNT(*) AS n FROM feedback_events').get() as { n: number }).n });
   });
 
   return router;

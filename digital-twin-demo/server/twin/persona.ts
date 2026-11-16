@@ -28,16 +28,16 @@ const DAYS = ['Κυριακή', 'Δευτέρα', 'Τρίτη', 'Τετάρτη'
 const weekdayOf = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00Z`).getUTCDay();
 
 // ---------- decision patterns: situation → action, mined from (incoming → owner reply) pairs ----------
-const SITUATIONS: Array<{ id: string; label: string; test: (text: string, sentAt: string) => boolean }> = [
+export const SITUATIONS: Array<{ id: string; label: string; test: (text: string, sentAt: string) => boolean }> = [
   { id: 'invite_lastminute_weekday', label: 'Όταν τον καλούν για έξοδο τελευταία στιγμή, καθημερινή', test: (text, sentAt) => INVITE.test(text) && LAST_MINUTE.test(text) && ![0, 6].includes(weekdayOf(sentAt)) },
   { id: 'invite_weekend', label: 'Όταν τον καλούν για έξοδο το Σαββατοκύριακο', test: (text, sentAt) => INVITE.test(text) && [0, 6].includes(weekdayOf(sentAt)) },
   { id: 'coffee_evening', label: 'Όταν του προτείνουν καφέ αργά το απόγευμα', test: (text, sentAt) => /καφ|kafe/i.test(text) && Number(sentAt.slice(11, 13)) >= 18 },
-  { id: 'evening_study', label: 'Όταν του προτείνουν βραδινό διάβασμα ή συνάντηση εργασίας', test: text => /(διαβάσουμε|απόψε|βράδυ|στις 9|online)/i.test(text) && /(διάβ|online|ομάδ|εργασ|μπορείτε)/i.test(text) },
+  { id: 'evening_study', label: 'Όταν του προτείνουν βραδινό διάβασμα ή συνάντηση εργασίας', test: text => /(διαβάσουμε|απόψε|βράδυ|στις 9|online|call)/i.test(text) && /(διάβ|online|ομάδ|εργασ|μπορείτε|project|call)/i.test(text) },
   { id: 'group_split', label: 'Όταν η ομάδα μοιράζει μια εργασία', test: text => /(μοιράζ|ποιο κομμάτι|αναλαμβάνεις)/i.test(text) },
   { id: 'meeting_request', label: 'Όταν του ζητούν συνάντηση χωρίς συγκεκριμένη ώρα', test: text => /(να βρεθούμε|να συναντηθούμε|συναντηθούμε|να κανονίσουμε|να το δούμε)/i.test(text) && !/\d{1,2}[:.]\d{2}|στις \d/.test(text) },
   { id: 'help_request', label: 'Όταν κάποιος έχει απορία ή έχει κολλήσει', test: text => /(κολλήσ|δεν καταλαβαίνω|απορία|βγαίνει λάθος|τι ζητάει)/i.test(text) },
 ];
-const INVITE = /(πάμε|θες|θέλεις|έλα|να βρεθούμε|pame|ela|πάρτι|για καφ|καφεδάκι|σινεμά|βόλτα|φαγητό|mpira|game)/i;
+const INVITE = /(πάμε|θες|θέλεις|έλα|έρχεσαι|θα έρθεις|να βρεθούμε|pame|ela|πάρτι|γενέθλια|για καφ|καφεδάκι|σινεμά|βόλτα|φαγητό|ποτό|mpira|mpasket|game)/i;
 const LAST_MINUTE = /(σήμερα|απόψε|τώρα|twra|simera)/i;
 
 const ACTIONS: Array<{ id: string; label: string; test: (text: string) => boolean }> = [
