@@ -57,6 +57,8 @@ export interface SuggestionServiceOptions {
   llm?: LlmClient;
   budget: UsageBudget;
   now?: () => number;
+  /** Past situations from the owner's imported footprint (redacted), when a twin store is available. */
+  exemplars?: (incoming: string, context: SuggestionContext) => Array<{ id: string; incoming: string; reply: string }>;
   /** Shown to the user when there is no model, e.g. while AI is paused. */
   disabledReason?: string;
 }
@@ -175,7 +177,9 @@ export class SuggestionService {
     const llm = this.options.llm!;
     const availability = this.availabilityFor(context);
     const { samples, error: retrievalError } = await this.retrieve(context);
-    const base = buildContextPrompt(this.options.repository.getPersona(), context, samples, availability);
+    const situational = this.options.exemplars?.(context.lastIncoming?.text ?? '', context) ?? [];
+    const base = buildContextPrompt(this.options.repository.getPersona(), context, samples, availability)
+      + (situational.length ? `\n\n## The owner's replies in similar past situations (imported history, redacted)\n${situational.map(item => `[${item.id}] «${item.incoming}» → «${item.reply}»`).join('\n')}` : '');
 
     let feedback: string[] | undefined;
     let guard: GuardResult | undefined;

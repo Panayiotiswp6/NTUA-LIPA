@@ -6,7 +6,7 @@ import {
   Grid3X3, Heart, Home, Image, Inbox, Info, Instagram, Lightbulb, Link,
   Mail, Maximize2, Menu, MessageCircle, Mic, Minus, MoreHorizontal, MoreVertical,
   Paperclip, Pencil, Phone, Plus, RefreshCw, Reply, RotateCcw, Search, Send,
-  Settings2, ShieldCheck, Smile, Sparkles, Square, Star, Tag, Trash2, Type,
+  BrainCircuit, Settings2, ShieldCheck, Smile, Sparkles, Square, Star, Tag, Trash2, Type,
   Users, Video, X,
 } from 'lucide-react';
 import { sourceRepository } from './domain';
@@ -15,6 +15,7 @@ import { useGhostSuggestion } from './useGhostSuggestion';
 import { useAiStatus } from './ai/provider';
 import type { AiStatus } from './ai/provider';
 import CalendarPanel from './components/CalendarPanel';
+import TwinWorkspace from './twin/TwinWorkspace';
 import { initialScheduleEvents, DEFAULT_REFERENCE_DATE } from './domain/scheduleData';
 import type { ScheduleEvent } from './domain/scheduleTypes';
 import { demoScenarios } from './domain/demoScenarios';
@@ -40,6 +41,7 @@ function GmailLogo() {
 
 function App() {
   const [channel, setChannel] = useState<Channel>('instagram');
+  const [twinOpen, setTwinOpen] = useState(false);
   const [threads, setThreads] = useState<Thread[]>(initialThreads);
   const [selected, setSelected] = useState<Record<Channel, string>>(initialSelected);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -113,6 +115,7 @@ function App() {
     if (channel === 'gmail') { setGmailView('thread'); setFloatingCompose(false); }
   };
   const changeChannel = (next: Channel) => {
+    setTwinOpen(false);
     setChannel(next);
     setSearch('');
     setGmailFolder('inbox');
@@ -232,8 +235,8 @@ function App() {
   </div>;
 
   return <div className={`desktop ${channel}-desktop`}>
-    <header className="workspace-bar"><div className="brand"><Sparkles size={14}/><span>Digital Self</span></div><nav className="workspace-nav" aria-label="Workspace apps"><button aria-label="Instagram" className={channel === 'instagram' ? 'active' : ''} onClick={() => changeChannel('instagram')}><Instagram size={15}/><span>Instagram</span></button><button aria-label="Gmail" className={channel === 'gmail' ? 'active' : ''} onClick={() => changeChannel('gmail')}><Mail size={15}/><span>Gmail</span></button><button aria-label="Calendar" className={panel === 'calendar' ? 'active' : ''} onClick={() => {setCalendarFocusDate(undefined);setPanel(value => value === 'calendar' ? null : 'calendar');}}><Calendar size={15}/><span>Calendar</span></button><span className="nav-divider"/><button aria-label="Control Center" className={panel === 'control' ? 'active' : ''} onClick={() => setPanel(value => value === 'control' ? null : 'control')}><Settings2 size={15}/><span>Control Center</span></button><button aria-label="Sources" className={panel === 'sources' ? 'active' : ''} onClick={() => { if (panel === 'sources') setPanel(null); else openSources(); }}><Bookmark size={15}/><span>Sources</span></button></nav><div className="workspace-meta"><AiBadge status={ai}/><span className="synthetic"><span/>Demo · Synthetic data</span><button className="reset-icon" onClick={reset} title="Reset demo" aria-label="Reset demo"><RotateCcw size={14}/></button></div></header>
-    <main className={`app-window ${channel}`}>{channel === 'instagram' ? instagramUI : gmailUI}</main>
+    <header className="workspace-bar"><div className="brand"><Sparkles size={14}/><span>Digital Self</span></div><nav className="workspace-nav" aria-label="Workspace apps"><button aria-label="Digital Twin" className={twinOpen ? 'active' : ''} onClick={() => { setTwinOpen(true); setPanel(null); }}><BrainCircuit size={15}/><span>Digital Twin</span></button><span className="nav-divider"/><button aria-label="Instagram" className={!twinOpen && channel === 'instagram' ? 'active' : ''} onClick={() => changeChannel('instagram')}><Instagram size={15}/><span>Instagram</span></button><button aria-label="Gmail" className={!twinOpen && channel === 'gmail' ? 'active' : ''} onClick={() => changeChannel('gmail')}><Mail size={15}/><span>Gmail</span></button><button aria-label="Calendar" className={panel === 'calendar' ? 'active' : ''} onClick={() => {setCalendarFocusDate(undefined);setPanel(value => value === 'calendar' ? null : 'calendar');}}><Calendar size={15}/><span>Calendar</span></button><span className="nav-divider"/><button aria-label="Control Center" className={panel === 'control' ? 'active' : ''} onClick={() => setPanel(value => value === 'control' ? null : 'control')}><Settings2 size={15}/><span>Control Center</span></button><button aria-label="Sources" className={panel === 'sources' ? 'active' : ''} onClick={() => { if (panel === 'sources') setPanel(null); else openSources(); }}><Bookmark size={15}/><span>Sources</span></button></nav><div className="workspace-meta"><AiBadge status={ai}/><span className="synthetic"><span/>Demo · Synthetic data</span><button className="reset-icon" onClick={reset} title="Reset demo" aria-label="Reset demo"><RotateCcw size={14}/></button></div></header>
+    {twinOpen ? <main className="app-window twin"><TwinWorkspace/></main> : <main className={`app-window ${channel}`}>{channel === 'instagram' ? instagramUI : gmailUI}</main>}
     {panel && <div className="panel-backdrop" onClick={() => setPanel(null)}><aside ref={dialog} className={`side-panel ${panel === 'calendar' ? 'calendar-side-panel' : ''}`} role="dialog" aria-modal="true" aria-label={panel === 'control' ? 'Control Center' : panel === 'calendar' ? 'Calendar' : 'Sources'} onClick={event => event.stopPropagation()}><header className="panel-header"><div><span className="eyebrow">DIGITAL SELF</span><h2>{panel === 'control' ? 'Control Center' : panel === 'calendar' ? 'Το πρόγραμμά μου' : 'The voice behind the words'}</h2></div><button aria-label="Close panel" onClick={() => setPanel(null)}><X size={21}/></button></header>{panel === 'calendar' ? <CalendarPanel events={calendarEvents} referenceDate={referenceDate} initialViewedDate={calendarFocusDate} onDateChange={setReferenceDate} onEventsChange={setCalendarEvents}/> : panel === 'control' ? <ControlPanel channel={channel} contactId={contact.id} onInject={inject} onReset={reset}/> : <div className="sources-content"><p className="panel-description">Κάθε πρόταση βασίζεται στη σχέση με την επαφή και σε παραδείγματα του δικού σου τρόπου γραφής.</p><label className="form-label">CONTACT<select value={sourceContact.id} onChange={event => { setSourceContactId(event.target.value); setEvidence(null); }}>{contacts.map(item => <option key={item.id} value={item.id}>{item.name} · {item.channel === 'gmail' ? 'Gmail' : 'Instagram'}</option>)}</select></label><div className="source-profile"><Avatar contact={sourceContact} size="large"/><div><h3>{sourceContact.name}</h3><p>{sourceContact.relationshipLabel}</p><small>{sourceContact.email}</small></div></div><div className="style-tags">{sourceContact.style.map(style => <span key={style}>{style}</span>)}</div><h4>Signature expressions</h4><p className="expressions">{sourceContact.expressions.map(expression => `“${expression}”`).join('  ·  ')}</p>{evidence && <div className="evidence-box"><h3><Sparkles size={17}/>Why this suggestion?</h3><p>{evidence.text}</p><AiEvidence suggestion={evidence}/>{evidence.availability && <div className="source-availability"><strong>Έλεγχος προγράμματος</strong><p>{evidence.availability.reason}</p><code>{evidence.availability.sourceIds.join(', ')}</code></div>}<div className="style-tags">{evidence.traits.map(trait => <span key={trait}>{trait}</span>)}</div><small>Based on: {evidence.sourceIds.join(', ')}</small></div>}<h4>{evidence ? 'Examples used in this suggestion' : 'Conversation sources'} <span>{evidence ? evidence.sourceIds.length : sourceRepository.getSources(sourceContact.id).length} samples</span></h4>{sourceRepository.getSources(sourceContact.id).filter(sample => !evidence || evidence.sourceIds.includes(sample.id)).map(sample => <article className="source-sample" key={sample.id}><header><code>{sample.id}</code><span>{sample.intent}</span>{evidence?.meta?.retrieval?.find(item => item.id === sample.id) && <span className="similarity" title="Cosine similarity (text-embedding-3-large)">sim {evidence.meta.retrieval.find(item => item.id === sample.id)!.score.toFixed(2)}</span>}</header><label>{sourceContact.firstName}</label><p>{sample.contactText}</p><label className="owner-source">{persona.name} <span>OWNER WRITING SAMPLE</span></label><p className="owner-example">{sample.ownerText}</p></article>)}<p className="source-note"><ShieldCheck size={15}/>Συνθετικές επαφές και παραδείγματα. Τα portraits είναι δημιουργημένα με AI.</p></div>}</aside></div>}
     {toast && <div className="toast" role="status"><Check size={16}/>{toast}</div>}
   </div>;

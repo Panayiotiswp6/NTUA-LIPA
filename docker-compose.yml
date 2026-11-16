@@ -9,4 +9,10 @@ services:
     env_file:
       - path: .env
         required: false
+    volumes:
+      # Imported data, persona and feedback live here, on this machine only.
+      - twin-data:/app/data
     restart: unless-stopped
+
+volumes:
+  twin-data:

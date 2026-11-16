@@ -7,3 +7,5 @@ coverage/
 *.tsbuildinfo
 .vite/
 dist-server/
+data/
+.DS_Store

@@ -5,37 +5,44 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "dev:server": "tsx watch --env-file-if-exists=../.env server/index.ts",
+    "dev:server": "tsx watch --disable-warning=ExperimentalWarning --env-file-if-exists=../.env server/index.ts",
     "build": "tsc -b && vite build",
     "build:server": "tsc -p tsconfig.server.json && esbuild server/index.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=dist-server/index.mjs",
     "build:all": "npm run build && npm run build:server",
-    "start": "node dist-server/index.mjs",
+    "start": "node --disable-warning=ExperimentalWarning dist-server/index.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json",
-    "eval": "tsx --env-file-if-exists=../.env server/eval.ts"
+    "eval": "tsx --env-file-if-exists=../.env server/eval.ts",
+    "e2e": "node scripts/e2e.cjs"
   },
   "dependencies": {
     "express": "^5.3.0",
     "lucide-react": "^0.468.0",
+    "mailparser": "^3.14.5",
     "openai": "^6.49.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/express": "^5.0.6",
+    "@types/mailparser": "^3.9.0",
     "@types/node": "^22.20.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "@vitejs/plugin-react": "^4.7.0",
     "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3",
     "vite": "^6.4.1",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "yazl": "^3.3.1"
   }
 }

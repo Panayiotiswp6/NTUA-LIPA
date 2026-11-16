@@ -1,0 +1,6 @@
+# Scripts and sources must keep LF endings so the Linux container builds on any host.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.zip binary
+*.mbox text eol=lf

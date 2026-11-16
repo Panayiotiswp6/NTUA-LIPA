@@ -5,8 +5,9 @@ import type { ServerConfig } from './config';
 import type { SuggestionService } from './suggestionService';
 import { validateRequest } from './suggestionService';
 import type { UsageBudget } from './budget';
+import { twinRouter, type TwinContext } from './twin/routes';
 
-export function createApp(config: ServerConfig, service: SuggestionService, budget: UsageBudget) {
+export function createApp(config: ServerConfig, service: SuggestionService, budget: UsageBudget, twin?: TwinContext) {
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '256kb' }));
@@ -42,6 +43,8 @@ export function createApp(config: ServerConfig, service: SuggestionService, budg
       response.status(422).json({ error: (error as Error).message });
     }
   });
+
+  if (twin) app.use('/api/twin', twinRouter(twin));
 
   app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }); });
 

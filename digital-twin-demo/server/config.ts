@@ -13,6 +13,8 @@ export interface ServerConfig {
   rateLimitPerMinute: number;
   requestTimeoutMs: number;
   staticDir?: string;
+  /** Where the local SQLite store lives (a Docker volume in production). */
+  dataDir: string;
   /** True while AI is paused: the key is ignored and every request is answered by the deterministic engine. */
   aiPaused: boolean;
 }
@@ -52,5 +54,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     rateLimitPerMinute: number(env.AI_RATE_LIMIT_PER_MINUTE, 60),
     requestTimeoutMs: number(env.AI_REQUEST_TIMEOUT_MS, 20_000),
     staticDir: env.STATIC_DIR?.trim() || 'dist',
+    dataDir: env.DATA_DIR?.trim() || 'data',
   };
 }

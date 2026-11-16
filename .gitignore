@@ -8,3 +8,5 @@
 **/.env.*
 !**/.env.example
 .DS_Store
+**/data/*.db*
+.DS_Store
