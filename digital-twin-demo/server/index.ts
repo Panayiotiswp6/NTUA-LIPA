@@ -8,6 +8,7 @@ import path from 'node:path';
 import { getSetting, openDatabase, setSetting } from './twin/db';
 import { counts, loadDemoPersona, type TwinContext } from './twin/routes';
 import { refreshPersona } from './twin/persona';
+import { evaluate } from './twin/fidelity';
 import { TwinEngine } from './twin/engine';
 import type { Relationship as DemoRelationship } from '../src/domain/types';
 import type { Relationship } from './twin/types';
@@ -38,6 +39,8 @@ if (process.env.SEED_DEMO !== 'false' && !counts(db).messages && !getSetting(db,
 refreshPersona(db);
 
 createApp(config, service, budget, twin).listen(config.port, '0.0.0.0', () => {
+  // Answer the hold-out set once now, so the first visitor of the overview or the Fidelity Lab does not wait.
+  setTimeout(() => { void evaluate(db).catch(() => undefined); }, 50).unref();
   console.log(`Digital Self listening on http://localhost:${config.port}`);
   console.log(llm
     ? `AI enabled: ${config.chatModel} + ${config.embeddingModel} (budget ${config.tokenBudget} tokens, ${config.rateLimitPerMinute}/min)`

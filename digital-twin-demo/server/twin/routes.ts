@@ -12,7 +12,7 @@ import type { UsageBudget } from '../budget';
 import { askTwin } from './ask';
 import { TwinEngine } from './engine';
 import { STUDIO_INBOX } from './studio';
-import { aiFidelityRun, answerBlind, blindPairs, offlineFidelity } from './fidelity';
+import { aiFidelityRun, answerBlind, blindPairs, evaluate, invalidateFidelity, offlineFidelity } from './fidelity';
 import { getSetting } from './db';
 import { styleProfile as currentStyle } from './persona';
 
@@ -64,8 +64,18 @@ export function twinRouter(context: TwinContext) {
   const { db } = context;
   const engine = new TwinEngine(db, context.llm, context.budget);
   // Every data change also refreshes the twin's situational memory.
+  // Anything that changes what the twin would answer drops its caches. The hold-out evaluation is then recomputed
+  // in the background once the data settles, so the Fidelity Lab and the overview do not wait for it.
+  let warmup: NodeJS.Timeout | undefined;
+  const repliesChanged = () => {
+    engine.invalidate();
+    invalidateFidelity(db);
+    clearTimeout(warmup);
+    warmup = setTimeout(() => { void evaluate(db).catch(() => undefined); }, 250);
+    warmup.unref();
+  };
   const changed = context.onDataChanged;
-  context.onDataChanged = () => { changed?.(); engine.invalidate(); };
+  context.onDataChanged = () => { changed?.(); repliesChanged(); };
 
   router.get('/overview', (_request, response) => {
     response.json({ owner: ownerState(db), sources: listSources(db), counts: counts(db) });
@@ -266,7 +276,7 @@ export function twinRouter(context: TwinContext) {
     const relationship = RELATIONSHIPS.has(String(body.relationship)) ? String(body.relationship) : null;
     db.prepare('INSERT INTO feedback_events (created_at, platform, relationship, incoming, suggestion, final_text, action, engine) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(new Date().toISOString(), String(body.platform), relationship, String(body.incoming), body.suggestion, body.finalText, String(body.action), typeof body.engine === 'string' ? body.engine.slice(0, 40) : null);
-    engine.invalidate();
+    repliesChanged();
     response.json({ ok: true, events: (db.prepare('SELECT COUNT(*) AS n FROM feedback_events').get() as { n: number }).n });
   });
 

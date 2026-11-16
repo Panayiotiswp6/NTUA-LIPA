@@ -107,32 +107,53 @@ function habits(profile: StyleProfile, messages: OwnerMessage[]): Candidate[] {
 
 // ---------- relationships: how the owner writes to each person ----------
 const LANG_TEXT: Record<string, string> = { el: 'ελληνικά', en: 'αγγλικά', greeklish: 'greeklish', mixed: 'μικτά ελληνικά-αγγλικά' };
+const PLATFORM_NAME: Record<string, string> = { whatsapp: 'WhatsApp', instagram: 'Instagram', gmail: 'Gmail', telegram: 'Telegram', messenger: 'Messenger' };
+const EMOJI = /\p{Extended_Pictographic}/u;
+const POLITE = /(σας|σάς|με εκτίμηση|θα μπορούσατε)/i;
+
 function relationships(db: Database, messages: OwnerMessage[]): Candidate[] {
-  const people = db.prepare(`
-    SELECT p.id, p.display_name AS name, GROUP_CONCAT(DISTINCT t.platform) AS platforms, GROUP_CONCAT(DISTINCT t.id) AS threads, MAX(t.relationship) AS relationship
-    FROM participants p JOIN messages m ON m.participant_id = p.id JOIN threads t ON t.id = m.thread_id JOIN sources s ON s.id = t.source_id
-    WHERE p.is_owner = 0 AND s.included = 1 GROUP BY p.id HAVING COUNT(m.id) >= 3`).all() as Array<{ id: string; name: string; platforms: string; threads: string; relationship: string }>;
+  // One-to-one conversations only, so group chats do not blur how the owner writes to each person.
+  const threads = db.prepare(`
+    SELECT m.thread_id AS threadId, MIN(p.id) AS personId, MIN(p.display_name) AS name, t.platform, COUNT(m.id) AS theirs
+    FROM messages m JOIN participants p ON p.id = m.participant_id JOIN threads t ON t.id = m.thread_id JOIN sources s ON s.id = m.source_id
+    WHERE p.is_owner = 0 AND s.included = 1
+    GROUP BY m.thread_id HAVING COUNT(DISTINCT p.id) = 1`).all() as Array<{ threadId: string; personId: string; name: string; platform: string; theirs: number }>;
+  const byThread = new Map<string, OwnerMessage[]>();
+  for (const message of messages) {
+    const list = byThread.get(message.threadId);
+    if (list) list.push(message); else byThread.set(message.threadId, [message]);
+  }
+  const people = new Map<string, { name: string; platforms: Set<string>; theirs: number; mine: OwnerMessage[] }>();
+  for (const thread of threads) {
+    const person = people.get(thread.personId) ?? { name: thread.name, platforms: new Set<string>(), theirs: 0, mine: [] };
+    person.platforms.add(thread.platform);
+    person.theirs += thread.theirs;
+    person.mine.push(...(byThread.get(thread.threadId) ?? []));
+    people.set(thread.personId, person);
+  }
   const candidates: Candidate[] = [];
-  for (const person of people) {
-    const threadIds = new Set(person.threads.split(','));
-    // One-to-one threads only, so group chats do not blur individual registers.
-    const mine = messages.filter(message => threadIds.has(message.threadId));
-    if (mine.length < 3) continue;
-    const emoji = mine.filter(message => /\p{Extended_Pictographic}/u.test(message.text)).length / mine.length;
-    const lower = mine.filter(message => { const first = /\p{L}/u.exec(message.text)?.[0]; return first && first === first.toLocaleLowerCase('el') && first !== first.toLocaleUpperCase('el'); }).length / mine.length;
-    const formal = mine.filter(message => /(σας|σάς|με εκτίμηση|θα μπορούσατε)/i.test(message.text)).length / mine.length;
+  for (const [id, person] of people) {
+    const mine = person.mine.sort((a, b) => a.sentAt.localeCompare(b.sentAt));
+    if (person.theirs < 3 || mine.length < 3) continue;
+    let emoji = 0, lower = 0, formal = 0;
     const langs = new Map<string, number>();
-    for (const message of mine) langs.set(message.lang, (langs.get(message.lang) ?? 0) + 1);
+    for (const message of mine) {
+      if (EMOJI.test(message.text)) emoji++;
+      const first = /\p{L}/u.exec(message.text)?.[0];
+      if (first && first === first.toLocaleLowerCase('el') && first !== first.toLocaleUpperCase('el')) lower++;
+      if (POLITE.test(message.text)) formal++;
+      langs.set(message.lang, (langs.get(message.lang) ?? 0) + 1);
+    }
     const [lang, langCount] = [...langs.entries()].sort((a, b) => b[1] - a[1])[0];
     const traits = [
-      formal > 0.4 ? 'επίσημα, με πληθυντικό ευγενείας' : lower > 0.6 ? 'χαλαρά, με πεζά' : 'φιλικά',
-      emoji > 0.3 ? `με emoji (${Math.round(emoji * 100)}%)` : emoji < 0.05 ? 'χωρίς emoji' : '',
+      formal / mine.length > 0.4 ? 'επίσημα, με πληθυντικό ευγενείας' : lower / mine.length > 0.6 ? 'χαλαρά, με πεζά' : 'φιλικά',
+      emoji / mine.length > 0.3 ? `με emoji (${Math.round((emoji / mine.length) * 100)}%)` : emoji / mine.length < 0.05 ? 'χωρίς emoji' : '',
       `σε ${LANG_TEXT[lang] ?? lang} (${Math.round((langCount / mine.length) * 100)}%)`,
     ].filter(Boolean);
     candidates.push({
-      key: `relationship:${person.id}`, category: 'relationship', origin: 'rules', confidence: Number(Math.min(0.95, 0.5 + mine.length / 100).toFixed(2)),
+      key: `relationship:${id}`, category: 'relationship', origin: 'rules', confidence: Number(Math.min(0.95, 0.5 + mine.length / 100).toFixed(2)),
       evidence: mine.slice(-5).map(message => message.id),
-      statement: `${person.name} (${person.platforms.split(',').map(platform => ({ whatsapp: 'WhatsApp', instagram: 'Instagram', gmail: 'Gmail', telegram: 'Telegram', messenger: 'Messenger' }[platform] ?? platform)).join(', ')}): του γράφει ${traits.join(', ')}.`,
+      statement: `${person.name} (${[...person.platforms].sort().map(platform => PLATFORM_NAME[platform] ?? platform).join(', ')}): του γράφει ${traits.join(', ')}.`,
     });
   }
   return candidates;
@@ -145,6 +166,9 @@ const DECISION = /(μοιράζουμε|αναλαμβάνω|μόνο με|συ�
 function fromNotes(db: Database, messages: OwnerMessage[]): Candidate[] {
   const documents = db.prepare('SELECT d.id, d.title, d.text FROM documents d JOIN sources s ON s.id = d.source_id WHERE s.included = 1').all() as Array<{ id: string; title: string; text: string }>;
   const candidates: Candidate[] = [];
+  // Tokenise the owner's messages once for all notes, and only when there are notes at all.
+  let cached: Array<Set<string>> | undefined;
+  const tokenSets = () => (cached ??= messages.map(message => new Set(words(message.text))));
   for (const document of documents) {
     // List items are the owner's own statements (goals, rules, preferences).
     const lines = document.text.split('\n')
@@ -153,7 +177,14 @@ function fromNotes(db: Database, messages: OwnerMessage[]): Candidate[] {
       .filter(line => line.length > 12);
     for (const line of [...new Set(lines)].slice(0, 12)) {
       const keys = words(line).filter(token => token.length > 4);
-      const support = messages.filter(message => { const tokens = new Set(words(message.text)); return keys.filter(key => tokens.has(key)).length >= 2; }).slice(0, 5);
+      // Messages that share at least two of the note's content words back it up (first five are enough).
+      const support: OwnerMessage[] = [];
+      const sets = tokenSets();
+      for (let index = 0; index < messages.length && support.length < 5; index++) {
+        let shared = 0;
+        for (const key of keys) if (sets[index].has(key) && ++shared >= 2) break;
+        if (shared >= 2) support.push(messages[index]);
+      }
       const category: FactCategory = DECISION.test(line) ? 'decision_pattern' : PREFERENCE.test(line) ? 'preference' : HABIT.test(line) ? 'habit' : 'knowledge';
       candidates.push({
         key: `note:${hash(document.id, line).slice(0, 12)}`, category, origin: 'rules',
@@ -198,9 +229,9 @@ function upsert(db: Database, candidates: Candidate[], origin: FactOrigin, repla
 /** Recompute everything we derive with our own code. Runs after every import or settings change. */
 export function refreshPersona(db: Database): StyleProfile {
   return transaction(db, () => {
-    const profile = computeStyleProfile(db);
-    setSetting(db, 'style_profile', profile);
     const messages = loadOwnerMessages(db);
+    const profile = computeStyleProfile(db, messages);
+    setSetting(db, 'style_profile', profile);
     const pairs = messages.filter((message): message is OwnerMessage & { replyTo: { text: string; sentAt: string } } => !!message.replyTo);
     upsert(db, [...decisionPatterns(pairs), ...habits(profile, messages), ...relationships(db, messages), ...fromNotes(db, messages)], 'rules', true);
     return profile;

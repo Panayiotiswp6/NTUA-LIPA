@@ -9,8 +9,10 @@ import type { LlmClient } from '../llm';
 import type { Database } from './db';
 import { getSetting } from './db';
 import { listFacts, SITUATIONS, styleProfile, type PersonaFact } from './persona';
+import type { StyleProfile } from './style';
 import { styleScore, type StyleMetrics, type StyleScore } from './style';
-import { redact } from './redact';
+import { redactionNames } from './ingest';
+import { createRedactor, type Redactor } from './redact';
 import { fold, words } from './text';
 import type { Relationship } from './types';
 
@@ -74,15 +76,40 @@ export function situationsOf(text: string, sentAt: string) {
   return SITUATIONS.filter(situation => situation.test(text, sentAt)).map(situation => situation.id);
 }
 
-interface Corpus { pairs: Array<Omit<Exemplar, 'score' | 'coverage' | 'sameSituation'> & { tokens: string[]; sentAt: string; situations: string[] }>; df: Map<string, number>; replyDf: Map<string, number>; avgLength: number; version: string }
+interface CorpusPair extends Omit<Exemplar, 'score' | 'coverage' | 'sameSituation'> {
+  sentAt: string;
+  situations: string[];
+  /** Term frequencies of the incoming message, built once so a query only does lookups. */
+  tf: Map<string, number>;
+  length: number;
+  contactFolded: string;
+}
+interface Corpus {
+  pairs: CorpusPair[];
+  df: Map<string, number>;
+  replyDf: Map<string, number>;
+  avgLength: number;
+  /** First five letters of every participant's name parts: names inflect (Αλέξανδρος → Αλέξανδρε), so compare stems. */
+  namePrefixes: Set<string>;
+}
+interface Ranked { pair: CorpusPair; score: number; coverage: number; sameSituation: boolean }
 
 /** Situational memory: past (incoming → owner reply) pairs and approved/edited drafts, never hold-out pairs. */
 export class TwinEngine {
   private corpus?: Corpus;
+  private profile?: StyleProfile | null;
+  private people?: Array<{ name: string; pseudonym: string }>;
+  private redactor?: Redactor;
 
   constructor(private readonly db: Database, private readonly llm?: LlmClient, private readonly budget?: UsageBudget) {}
 
-  invalidate() { this.corpus = undefined; }
+  /** Call after any data change; everything derived from the store is rebuilt on next use. */
+  invalidate() {
+    this.corpus = undefined;
+    this.profile = undefined;
+    this.people = undefined;
+    this.redactor = undefined;
+  }
 
   private load(): Corpus {
     if (this.corpus) return this.corpus;
@@ -96,59 +123,87 @@ export class TwinEngine {
       WHERE m.is_owner = 1 AND m.holdout = 0 AND s.included = 1`).all() as Array<{ id: string; incoming: string; reply: string; sentAt: string; platform: string; relationship: Relationship; contact: string }>;
     // The owner's edits in Reply Studio are the strongest evidence of how they actually write.
     const feedback = this.db.prepare("SELECT id, incoming, final_text AS reply, created_at AS sentAt, platform, COALESCE(relationship, 'unknown') AS relationship FROM feedback_events WHERE action IN ('accepted', 'edited') AND final_text != ''").all() as Array<{ id: number; incoming: string; reply: string; sentAt: string; platform: string; relationship: Relationship }>;
-    const pairs = [
-      ...rows.map(row => ({ ...row, source: 'history' as const })),
-      ...feedback.map(row => ({ ...row, id: `fb_${row.id}`, contact: '', sentAt: row.sentAt.slice(0, 19), source: 'feedback' as const })),
-    ].map(pair => ({ ...pair, tokens: tokens(pair.incoming), situations: situationsOf(pair.incoming, pair.sentAt) }));
     const df = new Map<string, number>();
-    for (const pair of pairs) for (const token of new Set(pair.tokens)) df.set(token, (df.get(token) ?? 0) + 1);
     const replyDf = new Map<string, number>();
-    for (const pair of pairs) for (const token of new Set(tokens(pair.reply))) replyDf.set(token, (replyDf.get(token) ?? 0) + 1);
-    this.corpus = { pairs, df, replyDf, avgLength: pairs.reduce((sum, pair) => sum + pair.tokens.length, 0) / Math.max(1, pairs.length), version: '' };
+    const contacts = new Map<string, string>();
+    let totalLength = 0;
+    const build = (pair: Omit<CorpusPair, 'tf' | 'length' | 'situations' | 'contactFolded'>): CorpusPair => {
+      const list = tokens(pair.incoming);
+      const tf = new Map<string, number>();
+      for (const token of list) tf.set(token, (tf.get(token) ?? 0) + 1);
+      for (const token of tf.keys()) df.set(token, (df.get(token) ?? 0) + 1);
+      for (const token of new Set(tokens(pair.reply))) replyDf.set(token, (replyDf.get(token) ?? 0) + 1);
+      totalLength += list.length;
+      let contactFolded = contacts.get(pair.contact);
+      if (contactFolded === undefined) { contactFolded = fold(pair.contact); contacts.set(pair.contact, contactFolded); }
+      return { ...pair, tf, length: list.length, situations: situationsOf(pair.incoming, pair.sentAt), contactFolded };
+    };
+    const pairs = [
+      ...rows.map(row => build({ ...row, source: 'history' })),
+      ...feedback.map(row => build({ ...row, id: `fb_${row.id}`, contact: '', sentAt: row.sentAt.slice(0, 19), source: 'feedback' })),
+    ];
+    const namePrefixes = new Set<string>();
+    for (const row of this.db.prepare('SELECT display_name AS name FROM participants').all() as Array<{ name: string }>) {
+      for (const part of tokens(row.name)) if (part.length > 3) namePrefixes.add(part.slice(0, 5));
+    }
+    this.corpus = { pairs, df, replyDf, avgLength: totalLength / Math.max(1, pairs.length), namePrefixes };
     return this.corpus;
   }
 
   /**
-   * BM25 on the incoming side, plus situation, register, same-person and owner-feedback boosts.
+   * Every relevant past pair, best first: BM25 on the incoming side, plus situation, register, same-person and
+   * owner-feedback boosts. One pass over precomputed term frequencies, so a reply needs a single scan.
    * plain=true turns every persona signal off: the "no persona" ablation in the Fidelity Lab.
    */
-  retrieve(request: TwinRequest, register: Relationship, limit = 5, plain = false): Exemplar[] {
+  private rank(request: TwinRequest, register: Relationship, plain = false): Ranked[] {
     const corpus = this.load();
-    const query = tokens(request.incoming);
-    const names = new Set(this.db.prepare('SELECT display_name AS name FROM participants').all().flatMap(row => tokens((row as { name: string }).name)));
-    // Names inflect (Αλέξανδρος → Αλέξανδρε), so compare stems.
-    const isName = (token: string) => [...names].some(name => name.length > 3 && token.slice(0, 5) === name.slice(0, 5));
-    const meaningful = [...new Set(query)].filter(token => !GENERIC.test(token) && !isName(token));
+    const isName = (token: string) => corpus.namePrefixes.has(token.slice(0, 5));
+    const n = corpus.pairs.length;
+    // Per query token: its weight, computed once instead of once per pair.
+    const query = [...new Set(tokens(request.incoming))].map(token => {
+      const df = corpus.df.get(token) ?? 0;
+      const generic = GENERIC.test(token) || isName(token);
+      return { token, generic, weight: (generic ? 0.3 : 1) * Math.log(1 + (n - df + 0.5) / (df + 0.5)) };
+    });
+    const meaningful = query.filter(item => !item.generic);
     const sentAt = request.sentAt ?? `${DEFAULT_REFERENCE_DATE}T12:00:00`;
     const situations = new Set(situationsOf(request.incoming, sentAt));
-    const n = corpus.pairs.length;
-    const scored = corpus.pairs.map(pair => {
+    const contact = request.contactName ? fold(request.contactName) : undefined;
+    const threshold = plain ? 0 : 1.5;
+    const ranked: Ranked[] = [];
+    for (const pair of corpus.pairs) {
       let score = 0;
-      const counts = new Map<string, number>();
-      for (const token of pair.tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
-      for (const token of new Set(query)) {
-        const tf = counts.get(token);
-        if (!tf) continue;
-        const idf = Math.log(1 + (n - (corpus.df.get(token) ?? 0) + 0.5) / ((corpus.df.get(token) ?? 0) + 0.5));
-        const weight = GENERIC.test(token) || isName(token) ? 0.3 : 1;
-        score += weight * idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * pair.tokens.length / Math.max(1, corpus.avgLength)));
+      const norm = 1.2 * (0.25 + 0.75 * pair.length / Math.max(1, corpus.avgLength));
+      for (const item of query) {
+        const tf = pair.tf.get(item.token);
+        if (tf) score += item.weight * (tf * 2.2) / (tf + norm);
       }
-      const sameSituation = pair.situations.some(situation => situations.has(situation));
+      const sameSituation = situations.size > 0 && pair.situations.some(situation => situations.has(situation));
       if (!plain) {
         if (sameSituation) score += 4;
         if (pair.relationship === register) score += 1.2;
-        if (request.contactName && fold(pair.contact) === fold(request.contactName)) score += 1;
+        if (contact !== undefined && pair.contactFolded === contact) score += 1;
         if (pair.platform === request.platform) score += 0.3;
         if (pair.source === 'feedback') score *= 1.5;
       }
-      const own = new Set(pair.tokens);
-      const coverage = meaningful.length ? meaningful.filter(token => own.has(token)).length / meaningful.length : 0;
-      return { pair, score, coverage, sameSituation };
-    }).filter(item => item.score > (plain ? 0 : 1.5)).sort((a, b) => b.score - a.score);
+      if (score <= threshold) continue;
+      let covered = 0;
+      for (const item of meaningful) if (pair.tf.has(item.token)) covered++;
+      ranked.push({ pair, score, coverage: meaningful.length ? covered / meaningful.length : 0, sameSituation });
+    }
+    ranked.sort((a, b) => b.score - a.score);
     // Prefer the register; fall back to other registers only when it has nothing relevant.
-    const inRegister = scored.filter(item => item.pair.relationship === register);
-    const chosen = (!plain && inRegister.length >= 2 ? inRegister : scored).slice(0, limit);
-    return chosen.map(({ pair, score, coverage, sameSituation }) => ({ id: pair.id, incoming: pair.incoming, reply: pair.reply, platform: pair.platform, relationship: pair.relationship, contact: pair.contact, source: pair.source, score: Number(score.toFixed(2)), coverage: Number(coverage.toFixed(2)), sameSituation }));
+    if (plain) return ranked;
+    const inRegister = ranked.filter(item => item.pair.relationship === register);
+    return inRegister.length >= 2 ? inRegister : ranked;
+  }
+
+  private static exemplar({ pair, score, coverage, sameSituation }: Ranked): Exemplar {
+    return { id: pair.id, incoming: pair.incoming, reply: pair.reply, platform: pair.platform, relationship: pair.relationship, contact: pair.contact, source: pair.source, score: Number(score.toFixed(2)), coverage: Number(coverage.toFixed(2)), sameSituation };
+  }
+
+  retrieve(request: TwinRequest, register: Relationship, limit = 5, plain = false): Exemplar[] {
+    return this.rank(request, register, plain).slice(0, limit).map(TwinEngine.exemplar);
   }
 
   relevantFacts(request: TwinRequest, situations: string[]) {
@@ -156,15 +211,18 @@ export class TwinEngine {
     const query = new Set(tokens(request.incoming));
     const situationFacts = facts.filter(fact => situations.some(situation => fact.statement.startsWith(SITUATIONS.find(item => item.id === situation)!.label)));
     const contactFacts = request.contactName ? facts.filter(fact => fact.category === 'relationship' && fold(fact.statement).startsWith(fold(request.contactName!))) : [];
-    const lexical = facts.filter(fact => fact.category !== 'relationship' && tokens(fact.statement).filter(token => query.has(token)).length >= 1)
-      .sort((a, b) => tokens(b.statement).filter(token => query.has(token)).length - tokens(a.statement).filter(token => query.has(token)).length);
+    const lexical = facts.filter(fact => fact.category !== 'relationship')
+      .map(fact => ({ fact, overlap: tokens(fact.statement).filter(token => query.has(token)).length }))
+      .filter(item => item.overlap >= 1)
+      .sort((a, b) => b.overlap - a.overlap)
+      .map(item => item.fact);
     const unique = new Map([...situationFacts, ...contactFacts, ...lexical].map(fact => [fact.id, fact]));
     return [...unique.values()].slice(0, 6);
   }
 
   private metrics(register: Relationship): StyleMetrics | undefined {
-    const profile = styleProfile(this.db);
-    return profile?.byRelationship[register] ?? profile?.global;
+    if (this.profile === undefined) this.profile = styleProfile(this.db);
+    return this.profile?.byRelationship[register] ?? this.profile?.global;
   }
 
   private availability(request: TwinRequest): AvailabilityResult | undefined {
@@ -175,25 +233,24 @@ export class TwinEngine {
 
   /** Everything sent to a model goes through this: other people's names become pseudonyms, PII is removed. */
   redactForModel(text: string) {
-    const people = this.db.prepare('SELECT display_name AS name, pseudonym FROM participants WHERE is_owner = 0').all() as Array<{ name: string; pseudonym: string }>;
-    const names = people.flatMap(person => {
-      const first = person.name.split(/\s+/)[0];
-      return [{ name: person.name, pseudonym: person.pseudonym }, ...(first.length >= 3 && first !== person.name ? [{ name: first, pseudonym: person.pseudonym }] : [])];
-    });
-    return redact(text, { names }).text;
+    this.redactor ??= createRedactor({ names: redactionNames(this.db) });
+    return this.redactor(text).text;
   }
 
   /** Local names come back after the model, which only ever sees pseudonyms. */
   depseudonymize(text: string) {
-    const people = this.db.prepare('SELECT display_name AS name, pseudonym FROM participants WHERE is_owner = 0').all() as Array<{ name: string; pseudonym: string }>;
-    return people.reduce((result, person) => result.replace(new RegExp(`\\b${person.pseudonym}\\b`, 'g'), person.name.split(' ')[0]), text);
+    if (!text.includes('Person_')) return text;
+    this.people ??= this.db.prepare('SELECT display_name AS name, pseudonym FROM participants WHERE is_owner = 0').all() as Array<{ name: string; pseudonym: string }>;
+    const names = new Map(this.people.map(person => [person.pseudonym, person.name.split(' ')[0]]));
+    return text.replace(/\bPerson_[A-Z]+\b/g, pseudonym => names.get(pseudonym) ?? pseudonym);
   }
 
   async reply(request: TwinRequest): Promise<TwinReply> {
     const register = inferRegister(request);
     const sentAt = request.sentAt ?? `${DEFAULT_REFERENCE_DATE}T12:00:00`;
     const situations = situationsOf(request.incoming, sentAt);
-    const exemplars = this.retrieve(request, register);
+    const ranked = this.rank(request, register);
+    const exemplars = ranked.slice(0, 5).map(TwinEngine.exemplar);
     const facts = this.relevantFacts(request, situations).map(({ id, category, statement, confidence }) => ({ id, category, statement, confidence }));
     const metrics = this.metrics(register);
     const availability = this.availability(request);
@@ -207,11 +264,11 @@ export class TwinEngine {
         // Fall through to the offline twin; the UI shows which engine answered.
       }
     }
-    return { ...base, ...this.offline(request, register, exemplars, facts, metrics, availability) };
+    return { ...base, ...this.offline(request, register, exemplars, ranked.slice(0, 30).map(TwinEngine.exemplar), facts, metrics, availability) };
   }
 
   /** Offline twin: the owner's own words from the most similar past situation, or the calendar decision. */
-  private offline(request: TwinRequest, register: Relationship, exemplars: Exemplar[], facts: TwinReply['facts'], metrics?: StyleMetrics, availability?: AvailabilityResult) {
+  private offline(request: TwinRequest, register: Relationship, exemplars: Exemplar[], candidates: Exemplar[], facts: TwinReply['facts'], metrics?: StyleMetrics, availability?: AvailabilityResult) {
     const notes: string[] = [];
     if (availability) {
       const contact = { relationship: RELATIONSHIP_TO_DEMO[register] } as Contact;
@@ -228,7 +285,7 @@ export class TwinEngine {
     // (a place, a time) leak into the new conversation.
     const corpus = this.load();
     const genericity = (reply: string) => { const list = tokens(reply); return list.length ? list.reduce((sum, token) => sum + Math.log(1 + (corpus.replyDf.get(token) ?? 0)), 0) / list.length : 0; };
-    const situational = this.retrieve(request, register, 30).filter(item => item.sameSituation).sort((a, b) => genericity(b.reply) - genericity(a.reply))[0];
+    const situational = candidates.filter(item => item.sameSituation).map(item => ({ item, generic: genericity(item.reply) })).sort((a, b) => b.generic - a.generic)[0]?.item;
     const best = similar ?? situational;
     if (!best) {
       return {

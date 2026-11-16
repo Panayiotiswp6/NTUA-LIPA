@@ -87,6 +87,14 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       );
     `,
   },
+  {
+    // Per-source statistics, source deletion and the hold-out lookup scanned every message without these.
+    version: 2,
+    sql: `
+      CREATE INDEX messages_source ON messages(source_id);
+      CREATE INDEX messages_holdout ON messages(holdout) WHERE holdout = 1;
+    `,
+  },
 ];
 
 export type Database = DatabaseSync;
@@ -95,7 +103,8 @@ export function openDatabase(file = ':memory:'): Database {
   if (file !== ':memory:') mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON;');
-  if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
+  // WAL with NORMAL sync is durable across application crashes and avoids an fsync per transaction.
+  if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
   migrate(db);
   return db;
 }

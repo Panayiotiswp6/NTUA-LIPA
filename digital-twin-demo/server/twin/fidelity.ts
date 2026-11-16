@@ -61,20 +61,46 @@ export function decisionOf(text: string) {
 
 const mean = (values: number[]) => (values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(3)) : 0);
 
-export function holdoutPairs(db: Database) {
-  return db.prepare(`
+/** Hold-out pairs evaluated per run. Enough for stable averages, and it keeps the page fast with years of history. */
+export const MAX_EVALUATED = 150;
+
+interface HoldoutPair { id: string; incoming: string; real: string; register: Relationship; contact: string; platform: string; sentAt: string }
+
+/** All hold-out pairs, or a fixed pseudo-random sample of them (ordered by content hash, so it never changes). */
+export function holdoutPairs(db: Database, limit?: number): HoldoutPair[] {
+  const rows = db.prepare(`
     SELECT m.id, r.text AS incoming, m.text AS real, t.relationship AS register, p.display_name AS contact, t.platform, r.sent_at AS sentAt
     FROM messages m JOIN messages r ON r.id = m.reply_to_message_id JOIN threads t ON t.id = m.thread_id
     JOIN participants p ON p.id = r.participant_id JOIN sources s ON s.id = m.source_id
-    WHERE m.holdout = 1 AND m.is_owner = 1 AND s.included = 1 ORDER BY m.sent_at`).all() as Array<{ id: string; incoming: string; real: string; register: Relationship; contact: string; platform: string; sentAt: string }>;
+    WHERE m.holdout = 1 AND m.is_owner = 1 AND s.included = 1 ORDER BY m.hash ${limit ? 'LIMIT ?' : ''}`).all(...(limit ? [limit] : [])) as unknown as HoldoutPair[];
+  return rows.sort((a, b) => a.sentAt.localeCompare(b.sentAt) || a.id.localeCompare(b.id));
 }
 
-export async function offlineFidelity(db: Database) {
+interface Evaluation { items: HoldoutItem[]; holdout: number }
+
+// The evaluation answers every sampled hold-out message with the twin, so it is computed once per state of the data
+// and shared by the Fidelity Lab, the blind test and the overview.
+const versions = new WeakMap<Database, number>();
+const evaluations = new WeakMap<Database, { stamp: string; evaluation: Promise<Evaluation> }>();
+
+/** Call after anything that can change the twin's replies: imports, "me", sources, relationships, feedback. */
+export function invalidateFidelity(db: Database) {
+  versions.set(db, (versions.get(db) ?? 0) + 1);
+}
+
+function stampOf(db: Database) {
+  // The explicit version covers every known write path; the counts catch a store that was changed some other way.
+  const row = db.prepare('SELECT (SELECT COUNT(*) FROM messages) AS messages, (SELECT COUNT(*) FROM feedback_events) AS feedback, (SELECT COALESCE(SUM(included), 0) FROM sources) AS sources').get() as { messages: number; feedback: number; sources: number };
+  return `${versions.get(db) ?? 0}:${row.messages}:${row.feedback}:${row.sources}`;
+}
+
+async function evaluateNow(db: Database): Promise<Evaluation> {
+  // Always the offline twin: the hold-out check must not spend API budget or depend on the network.
   const engine = new TwinEngine(db);
   const profile = styleProfile(db);
   const registers = profile?.byRelationship ?? {};
   const items: HoldoutItem[] = [];
-  for (const pair of holdoutPairs(db)) {
+  for (const pair of holdoutPairs(db, MAX_EVALUATED)) {
     const reply = await engine.reply({ incoming: pair.incoming, platform: pair.platform, relationship: pair.register, contactName: pair.contact, sentAt: pair.sentAt });
     const baseline = engine.retrieve({ incoming: pair.incoming, platform: pair.platform }, pair.register, 1, true)[0]?.reply ?? '';
     const metrics = registers[pair.register] ?? profile?.global;
@@ -88,45 +114,73 @@ export async function offlineFidelity(db: Database) {
       blindRegister: { real: blindRegister(pair.real, registers), twin: blindRegister(reply.text, registers), baseline: blindRegister(baseline, registers) },
     });
   }
-  const answered = items.filter(item => item.twinEngine !== 'abstain');
-  const summary = (list: HoldoutItem[]) => ({
+  const holdout = (db.prepare(`SELECT COUNT(*) AS n FROM messages m JOIN sources s ON s.id = m.source_id WHERE m.holdout = 1 AND m.is_owner = 1 AND s.included = 1`).get() as { n: number }).n;
+  return { items, holdout };
+}
+
+export function evaluate(db: Database): Promise<Evaluation> {
+  const stamp = stampOf(db);
+  const cached = evaluations.get(db);
+  if (cached?.stamp === stamp) return cached.evaluation;
+  const evaluation = evaluateNow(db);
+  evaluations.set(db, { stamp, evaluation });
+  // A failed run must not be served forever.
+  evaluation.catch(() => { if (evaluations.get(db)?.evaluation === evaluation) evaluations.delete(db); });
+  return evaluation;
+}
+
+function summarise(list: HoldoutItem[]) {
+  return {
     n: list.length,
     twin: { styleFit: mean(list.map(item => item.styleFit.twin)), lexical: mean(list.map(item => item.lexical.twin)), registerAccuracy: mean(list.map(item => Number(item.blindRegister.twin === item.register))), decision: mean(list.map(item => Number(item.decision.twin === item.decision.real))) },
     baseline: { styleFit: mean(list.map(item => item.styleFit.baseline)), lexical: mean(list.map(item => item.lexical.baseline)), registerAccuracy: mean(list.map(item => Number(item.blindRegister.baseline === item.register))), decision: mean(list.map(item => Number(item.decision.baseline === item.decision.real))) },
     real: { styleFit: mean(list.map(item => item.styleFit.real)), registerAccuracy: mean(list.map(item => Number(item.blindRegister.real === item.register))) },
-  });
-  const byRegister = [...new Set(answered.map(item => item.register))].map(register => ({ register, label: REGISTER_LABEL[register], ...summary(answered.filter(item => item.register === register)) }));
+  };
+}
+
+/** The numbers the overview shows, without the per-item detail. */
+export async function fidelityHeadline(db: Database) {
+  const { items, holdout } = await evaluate(db);
+  const answered = items.filter(item => item.twinEngine !== 'abstain');
+  const overall = summarise(answered);
+  return { holdout, evaluated: items.length, answered: answered.length, decision: overall.twin.decision, baselineDecision: overall.baseline.decision, registerAccuracy: overall.twin.registerAccuracy, styleFit: overall.twin.styleFit };
+}
+
+export async function offlineFidelity(db: Database) {
+  const { items, holdout } = await evaluate(db);
+  const answered = items.filter(item => item.twinEngine !== 'abstain');
+  const overall = summarise(answered);
+  const byRegister = [...new Set(answered.map(item => item.register))].map(register => ({ register, label: REGISTER_LABEL[register], ...summarise(answered.filter(item => item.register === register)) }));
   const feedbackEvents = (db.prepare('SELECT COUNT(*) AS n FROM feedback_events').get() as { n: number }).n;
   const result = {
     computedAt: new Date().toISOString(),
-    holdout: items.length,
+    holdout,
+    evaluated: items.length,
     abstained: items.length - answered.length,
     exact: answered.filter(item => item.exact).length,
-    overall: summary(answered),
+    overall,
     byRegister,
     worst: [...answered].sort((a, b) => a.lexical.twin + a.styleFit.twin - (b.lexical.twin + b.styleFit.twin)).slice(0, 4),
-    items,
     feedbackEvents,
   };
   // Learning-loop timeline: one point per change in the amount of owner feedback.
   const history = getSetting<Array<{ at: string; feedbackEvents: number; styleFit: number; lexical: number }>>(db, 'fidelity_history', []);
   if (!history.length || history.at(-1)!.feedbackEvents !== feedbackEvents) {
-    setSetting(db, 'fidelity_history', [...history, { at: result.computedAt, feedbackEvents, styleFit: result.overall.twin.styleFit, lexical: result.overall.twin.lexical }].slice(-50));
+    setSetting(db, 'fidelity_history', [...history, { at: result.computedAt, feedbackEvents, styleFit: overall.twin.styleFit, lexical: overall.twin.lexical }].slice(-50));
   }
   return { ...result, history: getSetting(db, 'fidelity_history', []), lastAiEval, aiRun: getSetting(db, 'fidelity_ai_run', null) };
 }
 
 // ---------- blind test: "which one did I write?" ----------
 export async function blindPairs(db: Database) {
-  const engine = new TwinEngine(db);
-  const pairs = [];
-  for (const pair of holdoutPairs(db)) {
-    const reply = await engine.reply({ incoming: pair.incoming, platform: pair.platform, relationship: pair.register, contactName: pair.contact, sentAt: pair.sentAt });
+  const { items } = await evaluate(db);
+  const pairs = items
     // Identical or empty twin replies make no sense in a blind test.
-    if (!reply.text || fold(reply.text).trim() === fold(pair.real).trim()) continue;
-    const realFirst = parseInt(hash('blind', pair.id).slice(0, 2), 16) % 2 === 0;
-    pairs.push({ id: pair.id, incoming: pair.incoming, contact: pair.contact, platform: pair.platform, options: realFirst ? [pair.real, reply.text] : [reply.text, pair.real] });
-  }
+    .filter(item => item.twin && !item.exact)
+    .map(item => {
+      const realFirst = parseInt(hash('blind', item.id).slice(0, 2), 16) % 2 === 0;
+      return { id: item.id, incoming: item.incoming, contact: item.contact, platform: item.platform, options: realFirst ? [item.real, item.twin] : [item.twin, item.real] };
+    });
   const results = getSetting<Array<{ id: string; correct: boolean }>>(db, 'blind_results', []);
   return { pairs, results: blindSummary(results) };
 }
@@ -134,14 +188,14 @@ export async function blindPairs(db: Database) {
 const blindSummary = (results: Array<{ id: string; correct: boolean }>) => ({ answered: results.length, fooled: results.filter(result => !result.correct).length, confusion: results.length ? Number((results.filter(result => !result.correct).length / results.length).toFixed(2)) : null });
 
 export async function answerBlind(db: Database, id: string, choice: number) {
-  const pair = (await blindPairs(db)).pairs.find(item => item.id === id);
-  if (!pair) return null;
-  const real = (db.prepare('SELECT text FROM messages WHERE id = ?').get(id) as { text: string }).text;
-  const correct = pair.options[choice] === real;
+  const item = (await evaluate(db)).items.find(candidate => candidate.id === id && candidate.twin && !candidate.exact);
+  if (!item) return null;
+  const realFirst = parseInt(hash('blind', item.id).slice(0, 2), 16) % 2 === 0;
+  const correct = (choice === 0) === realFirst;
   const results = getSetting<Array<{ id: string; correct: boolean }>>(db, 'blind_results', []).filter(result => result.id !== id);
   results.push({ id, correct });
   setSetting(db, 'blind_results', results);
-  return { correct, real, summary: blindSummary(results) };
+  return { correct, real: item.real, summary: blindSummary(results) };
 }
 
 // ---------- AI run (only when AI is enabled): embeddings + LLM-as-judge with a fixed rubric ----------
@@ -155,7 +209,7 @@ const JUDGE_SCHEMA = { name: 'fidelity_judge', schema: { type: 'object', additio
 export async function aiFidelityRun(db: Database, llm: LlmClient, budget: UsageBudget, limit = 12) {
   const engine = new TwinEngine(db, llm, budget);
   const items = [];
-  for (const pair of holdoutPairs(db).slice(0, limit)) {
+  for (const pair of holdoutPairs(db, limit)) {
     const twin = await engine.reply({ incoming: pair.incoming, platform: pair.platform, relationship: pair.register, contactName: pair.contact, sentAt: pair.sentAt });
     const generic = (await engine.generic(pair.incoming)) ?? '';
     const texts = [pair.real, twin.text || ' ', generic || ' '].map(text => engine.redactForModel(text));
