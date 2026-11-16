@@ -27,7 +27,7 @@ import { SuggestionService } from './suggestionService';
 
 const config = loadConfig();
 if (!config.openaiApiKey) {
-  console.error('OPENAI_API_KEY is required for the evaluation.');
+  console.error(config.aiPaused ? 'AI is paused. Run with AI_ENABLED=true once spending is approved.' : 'OPENAI_API_KEY is required for the evaluation.');
   process.exit(1);
 }
 const perContact = Number(process.env.EVAL_PER_CONTACT) || 3;

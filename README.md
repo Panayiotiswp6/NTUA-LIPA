@@ -13,13 +13,14 @@
 ```bash
 git clone https://github.com/Panayiotiswp6/NTUA-LIPA.git
 cd NTUA-LIPA
-cp .env.example .env    # προαιρετικό: βάλε το OPENAI_API_KEY για AI
+cp .env.example .env    # προαιρετικό: OPENAI_API_KEY + AI_ENABLED=true για AI
 docker compose up --build -d
 ```
 
 Άνοιξε το **http://localhost:3000**.
 
-- **Με `OPENAI_API_KEY`** στο `.env`: οι προτάσεις γράφονται από το `gpt-6-luna`, με semantic retrieval μέσω `text-embedding-3-large`. Πάνω δεξιά εμφανίζεται «AI · gpt-6-luna».
+- **Το AI είναι σε παύση από προεπιλογή**, για να προστατευτεί το περιορισμένο API allowance της ομάδας. Ακόμα κι αν υπάρχει key, το OpenAI δεν καλείται, και πάνω δεξιά εμφανίζεται «AI · σε παύση».
+- **Με `OPENAI_API_KEY` και `AI_ENABLED=true`** στο `.env`: οι προτάσεις γράφονται από το `gpt-6-luna`, με semantic retrieval μέσω `text-embedding-3-large`. Πάνω δεξιά εμφανίζεται «AI · gpt-6-luna».
 - **Χωρίς key**: η εφαρμογή λειτουργεί κανονικά και offline, με τους deterministic κανόνες, και εμφανίζει «Offline · κανόνες». Το demo δεν σπάει ποτέ λόγω δικτύου, κόστους ή διαθεσιμότητας του API.
 
 Τερματισμός: `docker compose down`.
@@ -88,6 +89,7 @@ flowchart LR
 - **Το API key μένει στον server.** Διαβάζεται μόνο από το `.env` του container, ποτέ από μεταβλητή `VITE_*` ή από το browser bundle. Το `.env` αγνοείται από το git. Το `/api/health` λέει μόνο αν το AI είναι ενεργό.
 - **Data minimisation.** Ο browser δεν στέλνει προφίλ ούτε δείγματα, και ο server δεν αποθηκεύει συνομιλίες. Οι αλλαγές ημερολογίου ζουν στη μνήμη της συνεδρίας.
 - **Ο χρήστης έχει τον έλεγχο.** Τίποτα δεν στέλνεται χωρίς ρητή αποδοχή και αποστολή. Το ghost text δεν είναι draft.
+- **Παύση AI.** Το `AI_ENABLED` είναι `false` από προεπιλογή, οπότε το key αγνοείται μέχρι να ενεργοποιηθεί ρητά. Για να ενεργοποιηθεί για όλους, η σταθερά `AI_ENABLED_BY_DEFAULT` στο `server/config.ts` γίνεται `true`.
 - **Όρια κόστους.** Υπάρχει token budget ανά διεργασία (`AI_TOKEN_BUDGET`) και rate limit (`AI_RATE_LIMIT_PER_MINUTE`). Πάνω από αυτά απαντούν οι κανόνες. Υπάρχουν επίσης cache ίδιων αιτημάτων, cache embeddings και τοπικό autocomplete όσο ο χρήστης ακολουθεί την πρόταση.
 
 ## Τοπική ανάπτυξη χωρίς Docker

@@ -21,6 +21,7 @@ export function createApp(config: ServerConfig, service: SuggestionService, budg
       status: 'ok',
       ai: {
         enabled: service.aiEnabled,
+        paused: config.aiPaused,
         model: service.aiEnabled ? config.chatModel : null,
         embeddingModel: service.aiEnabled ? config.embeddingModel : null,
       },

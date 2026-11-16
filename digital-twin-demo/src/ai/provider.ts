@@ -9,6 +9,8 @@ export interface AiStatus {
   model?: string;
   embeddingModel?: string;
   reason?: string;
+  /** The server has AI deliberately paused to protect the API allowance. */
+  paused?: boolean;
 }
 
 /**
@@ -42,10 +44,10 @@ export function checkAiHealth(): Promise<void> {
     try {
       const response = await fetch('api/health', { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const body = await response.json() as { ai?: { enabled?: boolean; model?: string; embeddingModel?: string } };
+      const body = await response.json() as { ai?: { enabled?: boolean; paused?: boolean; model?: string; embeddingModel?: string } };
       setStatus(body.ai?.enabled
         ? { state: 'online', model: body.ai.model, embeddingModel: body.ai.embeddingModel }
-        : { state: 'offline', reason: 'Ο server τρέχει χωρίς OPENAI_API_KEY· απαντούν οι deterministic κανόνες.' });
+        : { state: 'offline', paused: !!body.ai?.paused, reason: body.ai?.paused ? 'Το AI είναι σε παύση· απαντούν οι deterministic κανόνες.' : 'Ο server τρέχει χωρίς OPENAI_API_KEY· απαντούν οι deterministic κανόνες.' });
     } catch {
       setStatus(providerMode === 'server'
         ? { state: 'online', reason: 'Ο server δεν απάντησε στο health check.' }
