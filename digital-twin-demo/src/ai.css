@@ -1,0 +1,32 @@
+/* AI status, engine chip and explanation. Kept separate so visual QA on styles.css does not conflict. */
+.ai-badge{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:9px;letter-spacing:.2px;color:#8d959f;border:1px solid #2b323b;border-radius:999px;padding:3px 8px}
+.ai-badge>span{width:5px;height:5px;border-radius:50%;background:#6b7380}
+.ai-badge.online{color:#c9d7cf;border-color:#2f4a3d}
+.ai-badge.online>span{background:#4fc58a;box-shadow:0 0 0 3px rgba(79,197,138,.15)}
+.ai-badge.checking>span{background:#c9a94f;animation:ai-pulse 1.2s ease-in-out infinite}
+.ai-badge.offline{color:#8d959f}
+@keyframes ai-pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.ai-badge.checking>span{animation:none}}
+
+.engine-chip{display:inline-flex;align-items:center;gap:3px;font-size:8px;line-height:1;padding:3px 6px;border-radius:999px;border:1px solid rgba(128,140,160,.35);color:inherit;white-space:nowrap;cursor:help}
+.engine-chip.openai{border-color:rgba(79,197,138,.45)}
+
+.similarity{font-size:9px;font-variant-numeric:tabular-nums;color:#6b8bb8 !important;margin-left:auto}
+
+.ai-evidence{display:grid;gap:10px;margin:0 0 12px}
+.evidence-box .ai-evidence p{margin:0}
+.ai-understanding{border-left:3px solid #8fb3e8;padding:4px 0 4px 10px}
+.ai-understanding strong,.ai-guard strong{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:#4f6a91;margin-bottom:3px}
+.evidence-box .ai-understanding p{color:#3f5679;font-size:12px;line-height:1.5}
+.ai-facts{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0;font-size:10px}
+.ai-facts div{display:flex;gap:5px}
+.ai-facts dt{color:#8a9bb6}
+.ai-facts dd{margin:0;color:#3f5679;font-weight:600}
+.evidence-box .ai-fallback{font-size:10px;line-height:1.5;color:#7a5b1e;background:#fff6e2;border:1px solid #f1dfb4;border-radius:6px;padding:6px 8px}
+.ai-guard{font-size:10px;border-radius:6px;padding:7px 9px;background:#eef8f2;border:1px solid #cfe9da}
+.ai-guard.failed{background:#fdf0f0;border-color:#f1cccc}
+.ai-guard.failed strong{color:#9b3a3a}
+.ai-guard ul{margin:2px 0 0;padding-left:16px;color:#4a6a59;line-height:1.6}
+.ai-guard li.issue{color:#9b3a3a}
+
+@media (max-width:760px){.ai-badge{padding:3px 6px;font-size:8px}.engine-chip{display:none}}

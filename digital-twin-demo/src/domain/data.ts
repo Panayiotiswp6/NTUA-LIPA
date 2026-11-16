@@ -3,7 +3,7 @@ import type { Contact, Persona, SourceSample, Thread } from './types';
 export const persona: Persona = {
   id: 'persona-alex-01', name: 'Αλέξανδρος Νικολάου', firstName: 'Αλέξανδρος',
   username: 'alex.nikolaou.demo', email: 'alex.nikolaou@example.com',
-  avatar: 'avatars/portraits.png', avatarPosition: '0% 0%', avatarSize: '200% 200%', description: 'Φοιτητής στο ΕΜΠ · Όλα τα πρόσωπα και οι συνομιλίες είναι συνθετικά.',
+  avatar: 'avatars/portraits.png', avatarPosition: '0% 0%', avatarSize: '200% 200%', description: 'Φοιτητής στο ΕΜΠ · Όλα τα πρόσωπα και οι συνομιλίες είναι συνθετικά.', grammaticalGender: 'masculine',
 };
 
 const friendStyle = ['χαλαρό και σύντομο', 'πεζά γράμματα', 'φυσικές εκφράσεις', 'διακριτικά emoji'];

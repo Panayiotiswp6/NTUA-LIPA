@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: digital-twin-demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: digital-twin-demo/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build:all
+
+  docker:
+    # The judges run exactly this. If it fails, the submission is void.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build -d
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/health; then exit 0; fi
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+      - name: Offline suggestion works without an API key
+        run: |
+          curl -fsS http://localhost:3000/ | grep -q '<div id="root">'
+          curl -fsS -X POST http://localhost:3000/api/suggest -H 'Content-Type: application/json' \
+            -d '{"mode":"reply","channel":"instagram","contactId":"ig-maria","draft":"","history":[{"id":"m1","author":"contact","text":"πάμε για καφέ;","time":"12:00"}]}' \
+            | grep -q '"engine":"deterministic"'
+      - if: always()
+        run: docker compose down
