@@ -71,7 +71,8 @@ function evidence(context: SuggestionContext, intent: Intent, samples: SourceSam
   };
 }
 
-function prefixSuffix(candidate: string, draft: string): string | null {
+/** The part of `candidate` that can be appended after `draft`, ignoring case and accents. */
+export function prefixSuffix(candidate: string, draft: string): string | null {
   // Preserve everything the judge typed; a completion only appends new text.
   const target = fold(draft);
   if (!target) return null;

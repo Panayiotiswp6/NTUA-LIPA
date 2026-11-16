@@ -14,6 +14,8 @@ export interface Persona {
   avatarPosition?: string;
   avatarSize?: string;
   description: string;
+  /** Greek grammatical gender for self-references ("διαθέσιμος" / "διαθέσιμη"). */
+  grammaticalGender?: 'masculine' | 'feminine';
 }
 
 export interface Contact {
@@ -70,6 +72,24 @@ export interface SuggestionContext {
   meetingDurationMinutes?: number;
 }
 
+export type SuggestionEngine = 'openai' | 'deterministic';
+
+/** How a suggestion was produced. Optional so a provider without AI keeps the same contract. */
+export interface SuggestionMeta {
+  engine: SuggestionEngine;
+  /** Model id when engine is 'openai'. */
+  model?: string;
+  /** One sentence: what the twin understood the contact is asking for. */
+  understanding?: string;
+  /** Semantic retrieval of the owner's writing samples, best first. */
+  retrieval?: Array<{ id: string; score: number }>;
+  /** Deterministic checks applied to the model output before it reaches the composer. */
+  guard?: { passed: boolean; checks: string[]; issues: string[] };
+  /** Why the deterministic engine answered instead of the model. */
+  fallbackReason?: string;
+  latencyMs?: number;
+}
+
 export interface Suggestion {
   /** A complete reply for suggestReply; only the appendable suffix for autocomplete. */
   text: string;
@@ -77,6 +97,7 @@ export interface Suggestion {
   traits: string[];
   intent: Intent;
   availability?: AvailabilityResult;
+  meta?: SuggestionMeta;
 }
 
 export interface SuggestionProvider {
