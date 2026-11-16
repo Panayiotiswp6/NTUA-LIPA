@@ -1,0 +1,12 @@
+# One command: docker compose up --build   →   http://localhost:3000
+services:
+  digital-self:
+    build: ./digital-twin-demo
+    image: ntua-lipa/digital-self:latest
+    ports:
+      - "3000:3000"
+    # Optional. Without .env (or without OPENAI_API_KEY) the app runs fully offline with deterministic rules.
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
