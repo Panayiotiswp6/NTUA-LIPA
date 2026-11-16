@@ -19,7 +19,7 @@ describe('synthetic repository', () => {
       expect(new Set(contacts.map(contact => contact.relationship)).size).toBe(3);
       for (const contact of contacts) {
         expect(contact.email).toMatch(/@example\.com$/);
-        expect(contact.avatar).toMatch(/^avatars\/.+\.(svg|png)$/);
+        expect(contact.avatar).toMatch(/^avatars\/.+\.(svg|png|webp)$/);
         expect(contact.avatarPosition).toMatch(/^\d+% \d+%$/);
         expect(repository.getSources(contact.id).length).toBeGreaterThan(0);
         expect(repository.getThreads(channel).some(thread => thread.contactId === contact.id)).toBe(true);
